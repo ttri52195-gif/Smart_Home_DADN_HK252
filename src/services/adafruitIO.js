@@ -44,14 +44,16 @@ export async function getFeedHistory(feedKey, limit = 30) {
   }));
 }
 
-// ── Feed keys đúng với Adafruit IO của bạn ──────────────────────
+// ── Feed keys ────────────────────────────────────────────────────
 // Sensor (Arduino → App)
 export const FEED_TEMPERATURE = 'temperature';
 export const FEED_HUMIDITY    = 'humidity';
 export const FEED_THEMIS      = 'themis';
+export const FEED_GAS         = 'gas';   // cảm biến khí gas (ADC 0-4095)
+export const FEED_RAIN        = 'rain';  // cảm biến mưa (ADC 0-4095, 4095=khô)
 
-// Control (App → Arduino) — key chữ THƯỜNG theo Adafruit IO
-export const FEED_LB1   = 'lb1';    // đèn LED  (key: lb1)
-export const FEED_RGB   = 'rgb';    // NeoPixel  (key: rgb)
-export const FEED_DOOR  = 'door';   // servo cửa (key: door)
-export const FEED_PIR   = 'pir';    // PIR mode  (key: pir)
+// Control (App → Arduino)
+export const FEED_LB1   = 'lb1';
+export const FEED_RGB   = 'rgb';
+export const FEED_DOOR  = 'door';
+export const FEED_PIR   = 'pir';

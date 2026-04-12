@@ -4,7 +4,6 @@ import {
   StyleSheet, SafeAreaView, StatusBar, ActivityIndicator,
 } from 'react-native';
 import { getFeedValue, getFeedHistory } from '../services/adafruitIO';
-
 // Ngưỡng cảnh báo
 const THRESHOLDS = {
   temperature: { warn: 30, danger: 35, unit: '°C', label: 'Nhiệt độ', icon: '🌡️' },
