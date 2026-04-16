@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   Switch, StyleSheet, Alert, ActivityIndicator,
@@ -44,7 +44,7 @@ function Slider({ value, onValueChange, onSlidingComplete, minimumValue = 0, max
       </View>
       <View style={{
         position: 'absolute',
-        left: pct * width - 10,
+        left: Math.max(0, pct * width - 10),
         width: 20, height: 20, borderRadius: 10,
         backgroundColor: color,
         elevation: 4,
@@ -53,7 +53,7 @@ function Slider({ value, onValueChange, onSlidingComplete, minimumValue = 0, max
   );
 }
 
-// Gas: giá trị analog 0-4095, ngưỡng nguy hiểm > 2000
+// ── STATUS ──
 function getGasStatus(val) {
   if (val === null) return { label: '--', color: '#888', bg: '#1a1a3e', icon: '🟢' };
   if (val > 3000)   return { label: 'Nguy hiểm!', color: '#f87171', bg: '#2a0d0d', icon: '🔴' };
@@ -61,7 +61,6 @@ function getGasStatus(val) {
   return               { label: 'An toàn',      color: '#4ade80', bg: '#0d2a1a', icon: '🟢' };
 }
 
-// Rain: 4095 = khô, giá trị thấp = ướt/mưa
 function getRainStatus(val) {
   if (val === null) return { label: '--', color: '#888', bg: '#1a1a3e', icon: '☀️' };
   if (val < 1000)   return { label: 'Mưa to',   color: '#f87171', bg: '#0d1a2a', icon: '⛈️' };
@@ -72,6 +71,9 @@ function getRainStatus(val) {
 
 export default function HomeScreen() {
   const { connected, sensorData } = useMqtt();
+
+  // Chặn poll ghi đè slider đang kéo
+  const isDragging = useRef(false);
 
   const [ledBrightness, setLedBrightness] = useState(50);
   const [rgbBrightness, setRgbBrightness] = useState(50);
@@ -87,23 +89,65 @@ export default function HomeScreen() {
     setLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 20));
   };
 
-  // Poll gas + rain mỗi 5 giây
-  useEffect(() => {
-    const poll = async () => {
-      try {
-        const [gas, rain] = await Promise.all([
-          getFeedValue('gas'),
-          getFeedValue('rain'),
-        ]);
-        if (gas  !== null) setGasVal(parseInt(gas));
-        if (rain !== null) setRainVal(parseInt(rain));
-      } catch (_) {}
-    };
-    poll();
-    const id = setInterval(poll, 5000);
-    return () => clearInterval(id);
-  }, []);
+  // ── Sync control state (lb1, rgb, door, pir) ──
+  // Chỉ gọi 1 lần khi mount — không poll lại vì local state
+  // đã được cập nhật ngay trong từng handler khi user thao tác.
+  const syncControlState = async () => {
+    try {
+      const [led, rgb, door, pir] = await Promise.all([
+        getFeedValue('lb1'),
+        getFeedValue('rgb'),
+        getFeedValue('door'),
+        getFeedValue('pir'),
+      ]);
 
+      if (!isDragging.current) {
+        if (led !== null) setLedBrightness(Math.min(100, Math.max(0, parseInt(led, 10))));
+        if (rgb !== null) setRgbBrightness(Math.min(100, Math.max(1, parseInt(rgb, 10))));
+      }
+      if (door !== null) setDoorStatus(door === 'OPEN' ? 'OPEN' : 'CLOSE');
+      if (pir  !== null) setPirEnabled(pir === 'ON');
+    } catch (_) {}
+  };
+
+ useEffect(() => {
+  const fetchAll = async () => {
+    try {
+      const [led, rgb, door, pir, gas, rain] = await Promise.all([
+        getFeedValue('lb1'),
+        getFeedValue('rgb'),
+        getFeedValue('door'),
+        getFeedValue('pir'),
+        getFeedValue('gas'),
+        getFeedValue('rain'),
+      ]);
+
+      // --- CONTROL ---
+      if (!isDragging.current) {
+        if (led !== null) setLedBrightness(parseInt(led, 10));
+        if (rgb !== null) setRgbBrightness(parseInt(rgb, 10));
+      }
+
+      if (door !== null) setDoorStatus(door === 'OPEN' ? 'OPEN' : 'CLOSE');
+      if (pir !== null) setPirEnabled(pir === 'ON');
+
+      // --- SENSOR ---
+      if (gas !== null) setGasVal(parseInt(gas, 10));
+      if (rain !== null) setRainVal(parseInt(rain, 10));
+
+    } catch (e) {
+      console.log("Fetch error:", e);
+    }
+  };
+
+  // chạy lần đầu
+  fetchAll();
+
+  // poll mỗi 3s (đừng để 5s lâu quá)
+  const id = setInterval(fetchAll, 3000);
+
+  return () => clearInterval(id);
+}, []);
   const setLoading_ = (key, val) => setLoading(prev => ({ ...prev, [key]: val }));
 
   const handleLedRelease = async (val) => {
@@ -113,7 +157,10 @@ export default function HomeScreen() {
       await publishFeed('lb1', v);
       addLog(`Đèn LED: ${v}%`);
     } catch (e) { Alert.alert('Lỗi', e.message); }
-    finally { setLoading_('led', false); }
+    finally {
+      setLoading_('led', false);
+      isDragging.current = false;
+    }
   };
 
   const handleRgbRelease = async (val) => {
@@ -123,7 +170,10 @@ export default function HomeScreen() {
       await publishFeed('rgb', v);
       addLog(`RGB: độ sáng ${v}%`);
     } catch (e) { Alert.alert('Lỗi', e.message); }
-    finally { setLoading_('rgb', false); }
+    finally {
+      setLoading_('rgb', false);
+      isDragging.current = false;
+    }
   };
 
   const handleDoor = async (action) => {
@@ -180,7 +230,6 @@ export default function HomeScreen() {
         <Text style={s.sectionLabel}>CẢM BIẾN AN TOÀN</Text>
         <View style={s.safetyRow}>
 
-          {/* Gas */}
           <View style={[s.safetyCard, { backgroundColor: gas.bg, borderColor: gas.color + '55' }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
               <Text style={{ fontSize: 22 }}>{gas.icon}</Text>
@@ -195,7 +244,6 @@ export default function HomeScreen() {
             )}
           </View>
 
-          {/* Rain */}
           <View style={[s.safetyCard, { backgroundColor: rain.bg, borderColor: rain.color + '55' }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
               <Text style={{ fontSize: 22 }}>{rain.icon}</Text>
@@ -216,15 +264,21 @@ export default function HomeScreen() {
         <Text style={s.sectionLabel}>ĐIỀU KHIỂN</Text>
 
         <ControlCard title="Đèn LED" sub={`Độ sáng: ${ledBrightness}%`} loading={loading.led}>
-          <Slider value={ledBrightness} minimumValue={0} maximumValue={100} color="#6366f1"
-            onValueChange={v => setLedBrightness(Math.round(v))}
-            onSlidingComplete={handleLedRelease} />
+          <Slider
+            value={ledBrightness}
+            minimumValue={0} maximumValue={100} color="#6366f1"
+            onValueChange={v => { isDragging.current = true; setLedBrightness(Math.round(v)); }}
+            onSlidingComplete={handleLedRelease}
+          />
         </ControlCard>
 
         <ControlCard title="RGB NeoPixel" sub={`Độ sáng: ${rgbBrightness}%`} loading={loading.rgb}>
-          <Slider value={rgbBrightness} minimumValue={1} maximumValue={100} color="#a78bfa"
-            onValueChange={v => setRgbBrightness(Math.round(v))}
-            onSlidingComplete={handleRgbRelease} />
+          <Slider
+            value={rgbBrightness}
+            minimumValue={1} maximumValue={100} color="#a78bfa"
+            onValueChange={v => { isDragging.current = true; setRgbBrightness(Math.round(v)); }}
+            onSlidingComplete={handleRgbRelease}
+          />
         </ControlCard>
 
         <ControlCard title="Cửa (Servo)" sub={`Trạng thái: ${doorStatus === 'OPEN' ? 'Đang mở' : 'Đang đóng'}`} loading={loading.door}>
@@ -239,8 +293,12 @@ export default function HomeScreen() {
         </ControlCard>
 
         <ControlCard title="Chế độ PIR" sub="Phát hiện chuyển động + còi">
-          <Switch value={pirEnabled} onValueChange={handlePir}
-            trackColor={{ false: '#333355', true: '#6366f1' }} thumbColor="#fff" />
+          <Switch
+            value={pirEnabled}
+            onValueChange={handlePir}
+            trackColor={{ false: '#333355', true: '#6366f1' }}
+            thumbColor="#fff"
+          />
         </ControlCard>
 
         {logs.length > 0 && (
