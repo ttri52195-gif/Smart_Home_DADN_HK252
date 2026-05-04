@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Smart House",
+    "slug": "smarthouse-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#292D31"
+    },
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#292D31"
+      }
+    }
+  }
+}
