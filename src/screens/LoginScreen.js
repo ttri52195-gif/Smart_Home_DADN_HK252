@@ -1,196 +1,221 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView,
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  ActivityIndicator,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 
 export default function LoginScreen() {
-  const { signIn, signUp, error } = useAuth();
-  const [mode, setMode]       = useState('login'); // 'login' | 'register'
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [isOwner, setIsOwner] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const { signIn } = useAuth();
 
-  async function handleSubmit() {
-    if (!username.trim() || !password.trim()) return;
-    setLoading(true);
-    if (mode === 'login') {
-      await signIn(username.trim(), password);
-    } else {
-      await signUp(username.trim(), password, isOwner);
+  const [form, setForm] = useState({
+    email: '',
+    password: '',
+  });
+
+  const [showPassword, setShowPassword] = useState(false);
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleChange = (field) => (value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const passwordRef = useRef(null);
+
+  const isDisabled = loading || !form.email || !form.password;
+
+  const handleLogin = async () => {
+    if (loading) return;
+
+    if (!form.email || !form.password) {
+      setError('Please enter email and password');
+      return;
     }
-    setLoading(false);
-  }
+
+    if (!form.email.includes('@')) {
+      setError('Invalid email');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      await signIn({
+        username: form.email.trim(),
+        password: form.password,
+      });
+    } catch (e) {
+      setError(e.message || 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={s.safe}>
       <KeyboardAvoidingView
+        style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={s.flex}
       >
-        <ScrollView
-          contentContainerStyle={s.container}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Brand */}
-          <View style={s.brand}>
-            <Text style={s.brandIcon}>🏠</Text>
-            <Text style={s.brandName}>Smart House</Text>
-          </View>
-          <Text style={s.tagline}>
-            {mode === 'login' ? 'Sign in to your home' : 'Create your account'}
-          </Text>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={s.container}>
+            {/* Title */}
+            <Text style={s.title}>Welcome Back</Text>
+            <Text style={s.subtitle}>Login to your smart home</Text>
 
-          {/* Form */}
-          <View style={s.form}>
-            <Text style={s.label}>Username</Text>
+            {/* Email */}
             <TextInput
+              placeholder="Email"
+              autoFocus
+              value={form.email}
+              onChangeText={handleChange('email')}
               style={s.input}
-              value={username}
-              onChangeText={setUsername}
-              placeholder="Enter username"
-              placeholderTextColor={Colors.text.caption}
               autoCapitalize="none"
-              autoCorrect={false}
+              returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
             />
 
-            <Text style={s.label}>Password</Text>
+            {/* Password */}
             <TextInput
+              ref={passwordRef}
+              placeholder="Password"
+              value={form.password}
+              onChangeText={handleChange('password')}
               style={s.input}
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Enter password"
-              placeholderTextColor={Colors.text.caption}
-              secureTextEntry
+              secureTextEntry={!showPassword}
+              returnKeyType="done"
+              onSubmitEditing={handleLogin}
             />
 
-            {mode === 'register' && (
-              <TouchableOpacity
-                style={s.ownerRow}
-                onPress={() => setIsOwner(v => !v)}
-                activeOpacity={0.7}
-              >
-                <View style={[s.checkbox, isOwner && s.checkboxActive]}>
-                  {isOwner && <Text style={s.check}>✓</Text>}
-                </View>
-                <Text style={s.ownerLabel}>Register as house owner</Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity onPress={() => setShowPassword((p) => !p)}>
+              <Text>{showPassword ? 'Hide' : 'Show'}</Text>
+            </TouchableOpacity>
 
-            {!!error && <Text style={s.errorText}>{error}</Text>}
+            {/* Error */}
+            {error ? <Text style={s.errorText}>{error}</Text> : null}
 
+            {/* Button */}
             <TouchableOpacity
-              style={[s.btn, loading && s.btnDisabled]}
-              onPress={handleSubmit}
-              disabled={loading}
-              activeOpacity={0.85}
+              style={[s.btn, isDisabled && s.btnDisabled]}
+              onPress={handleLogin}
+              disabled={isDisabled}
             >
-              {loading
-                ? <ActivityIndicator color={Colors.text.onGold} />
-                : <Text style={s.btnText}>{mode === 'login' ? 'Sign In' : 'Register'}</Text>
-              }
+              {loading ? (
+                <ActivityIndicator color={Colors.text.onGold} />
+              ) : (
+                <Text style={s.btnText}>Login</Text>
+              )}
             </TouchableOpacity>
           </View>
-
-          {/* Toggle mode */}
-          <TouchableOpacity
-            onPress={() => { setMode(m => m === 'login' ? 'register' : 'login'); }}
-            style={s.toggleBtn}
-          >
-            <Text style={s.toggleText}>
-              {mode === 'login'
-                ? "Don't have an account? Register"
-                : 'Already have an account? Sign in'}
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
+        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  safe:      { flex: 1, backgroundColor: Colors.surface.base },
-  flex:      { flex: 1 },
+  safe: { flex: 1, backgroundColor: Colors.surface.base },
+  flex: { flex: 1 },
   container: {
-    flexGrow: 1,
+    flex: 1,
     justifyContent: 'center',
     paddingHorizontal: Spacing.xxl,
-    paddingVertical:   Spacing.xxxl,
+    paddingVertical: Spacing.xxxl,
   },
 
-  brand: { flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.md },
+  brand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
   brandIcon: { fontSize: 38, marginRight: Spacing.md },
   brandName: {
-    fontSize:   Typography.size.xxl,
+    fontSize: Typography.size.xxl,
     fontWeight: Typography.weight.bold,
-    color:      Colors.primary.default,
+    color: Colors.primary.default,
   },
   tagline: {
-    fontSize:     Typography.size.md,
-    color:        Colors.text.body,
+    fontSize: Typography.size.md,
+    color: Colors.text.body,
     marginBottom: Spacing.xxl,
   },
 
-  form:        { marginBottom: Spacing.xl },
+  form: { marginBottom: Spacing.xl },
   label: {
-    fontSize:     Typography.size.sm,
-    color:        Colors.text.subtitle,
-    fontWeight:   Typography.weight.medium,
-    marginTop:    Spacing.lg,
+    fontSize: Typography.size.sm,
+    color: Colors.text.subtitle,
+    fontWeight: Typography.weight.medium,
+    marginTop: Spacing.lg,
     marginBottom: Spacing.xs,
   },
   input: {
     backgroundColor: Colors.surface.card,
-    borderRadius:    Radius.md,
-    borderWidth:     1,
-    borderColor:     Colors.surface.elevated,
-    color:           Colors.text.title,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.surface.elevated,
+    color: Colors.text.title,
     paddingHorizontal: Spacing.lg,
-    paddingVertical:   12,
-    fontSize:        Typography.size.md,
+    paddingVertical: 12,
+    fontSize: Typography.size.md,
   },
 
-  ownerRow:    { flexDirection: 'row', alignItems: 'center', marginTop: Spacing.lg },
+  ownerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: Spacing.lg,
+  },
   checkbox: {
-    width: 20, height: 20,
+    width: 20,
+    height: 20,
     borderRadius: Radius.sm,
-    borderWidth:  1.5,
-    borderColor:  Colors.primary.default,
-    marginRight:  Spacing.md,
-    alignItems:   'center',
+    borderWidth: 1.5,
+    borderColor: Colors.primary.default,
+    marginRight: Spacing.md,
+    alignItems: 'center',
     justifyContent: 'center',
   },
   checkboxActive: { backgroundColor: Colors.primary.default },
-  check:      { color: Colors.text.onGold, fontSize: 12, fontWeight: Typography.weight.bold },
+  check: {
+    color: Colors.text.onGold,
+    fontSize: 12,
+    fontWeight: Typography.weight.bold,
+  },
   ownerLabel: { color: Colors.text.body, fontSize: Typography.size.md },
 
   errorText: {
-    color:        Colors.error,
-    fontSize:     Typography.size.sm,
-    marginTop:    Spacing.md,
+    color: Colors.error,
+    fontSize: Typography.size.sm,
+    marginTop: Spacing.md,
     marginBottom: Spacing.xs,
   },
 
   btn: {
     backgroundColor: Colors.primary.default,
-    borderRadius:    Radius.md,
+    borderRadius: Radius.md,
     paddingVertical: 14,
-    alignItems:      'center',
-    marginTop:       Spacing.xl,
+    alignItems: 'center',
+    marginTop: Spacing.xl,
   },
   btnDisabled: { opacity: 0.6 },
   btnText: {
-    color:      Colors.text.onGold,
-    fontSize:   Typography.size.lg,
+    color: Colors.text.onGold,
+    fontSize: Typography.size.lg,
     fontWeight: Typography.weight.bold,
   },
 
-  toggleBtn:  { marginTop: Spacing.xl, alignItems: 'center' },
+  toggleBtn: { marginTop: Spacing.xl, alignItems: 'center' },
   toggleText: { color: Colors.primary.default, fontSize: Typography.size.sm },
 });
