@@ -1,51 +1,40 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
+
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
-  ActivityIndicator,
   StyleSheet,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  TouchableWithoutFeedback,
-  Keyboard,
+  StatusBar,
 } from 'react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+
 import { useAuth } from '../context/AuthContext';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 
 export default function LoginScreen() {
-  const { signIn } = useAuth();
+  const { signIn, signUp } = useAuth();
 
-  const [form, setForm] = useState({
-    email: '',
-    password: '',
-  });
+  const [mode, setMode] = useState('login');
+
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
 
   const [showPassword, setShowPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
+
   const [error, setError] = useState('');
 
-  const handleChange = (field) => (value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const passwordRef = useRef(null);
-
-  const isDisabled = loading || !form.email || !form.password;
-
-  const handleLogin = async () => {
-    if (loading) return;
-
-    if (!form.email || !form.password) {
-      setError('Please enter email and password');
-      return;
-    }
-
-    if (!form.email.includes('@')) {
-      setError('Invalid email');
+  async function handleSubmit() {
+    if (!username.trim() || !password.trim()) {
+      setError('Please fill all fields');
       return;
     }
 
@@ -53,169 +42,294 @@ export default function LoginScreen() {
     setError('');
 
     try {
-      await signIn({
-        username: form.email.trim(),
-        password: form.password,
-      });
+      if (mode === 'login') {
+        await signIn(username.trim(), password);
+      } else {
+        await signUp(username.trim(), password);
+
+        setPassword('');
+
+        setUsername('');
+
+        setMode('login');
+
+        setError('');
+
+        alert('Account created successfully!\n Please login to continue.');
+      }
     } catch (e) {
-      setError(e.message || 'Login failed');
+      setError(e.message || 'Something went wrong');
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
     <SafeAreaView style={s.safe}>
+      <StatusBar barStyle="light-content" />
+
+      {/* background glow */}
+      <View style={s.glowTop} />
+      <View style={s.glowBottom} />
+
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={s.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={s.container}>
-            {/* Title */}
-            <Text style={s.title}>Welcome Back</Text>
-            <Text style={s.subtitle}>Login to your smart home</Text>
-
-            {/* Email */}
-            <TextInput
-              placeholder="Email"
-              autoFocus
-              value={form.email}
-              onChangeText={handleChange('email')}
-              style={s.input}
-              autoCapitalize="none"
-              returnKeyType="next"
-              onSubmitEditing={() => passwordRef.current?.focus()}
+        {/* logo */}
+        <View style={s.logoWrap}>
+          <View style={s.logoCircle}>
+            <Ionicons
+              name="home-outline"
+              size={42}
+              color={Colors.primary.default}
             />
+          </View>
 
-            {/* Password */}
-            <TextInput
-              ref={passwordRef}
-              placeholder="Password"
-              value={form.password}
-              onChangeText={handleChange('password')}
-              style={s.input}
-              secureTextEntry={!showPassword}
-              returnKeyType="done"
-              onSubmitEditing={handleLogin}
-            />
+          <Text style={s.title}>Smart House</Text>
+        </View>
 
-            <TouchableOpacity onPress={() => setShowPassword((p) => !p)}>
-              <Text>{showPassword ? 'Hide' : 'Show'}</Text>
+        {/* card */}
+        <View style={s.card}>
+          {/* tabs */}
+          <View style={s.tabs}>
+            <TouchableOpacity
+              style={[s.tabBtn, mode === 'login' && s.tabBtnActive]}
+              onPress={() => {
+                setMode('login');
+                setError('');
+              }}
+            >
+              <Text style={[s.tabText, mode === 'login' && s.tabTextActive]}>
+                Login
+              </Text>
             </TouchableOpacity>
 
-            {/* Error */}
-            {error ? <Text style={s.errorText}>{error}</Text> : null}
-
-            {/* Button */}
             <TouchableOpacity
-              style={[s.btn, isDisabled && s.btnDisabled]}
-              onPress={handleLogin}
-              disabled={isDisabled}
+              style={[s.tabBtn, mode === 'signup' && s.tabBtnActive]}
+              onPress={() => {
+                setMode('signup');
+                setError('');
+              }}
             >
-              {loading ? (
-                <ActivityIndicator color={Colors.text.onGold} />
-              ) : (
-                <Text style={s.btnText}>Login</Text>
-              )}
+              <Text style={[s.tabText, mode === 'signup' && s.tabTextActive]}>
+                Sign Up
+              </Text>
             </TouchableOpacity>
           </View>
-        </TouchableWithoutFeedback>
+
+          {/* username */}
+          <View style={s.inputWrap}>
+            <Ionicons
+              name="person-outline"
+              size={18}
+              color={Colors.text.caption}
+            />
+
+            <TextInput
+              placeholder="Username"
+              placeholderTextColor={Colors.text.caption}
+              value={username}
+              onChangeText={setUsername}
+              autoCapitalize="none"
+              style={s.input}
+            />
+          </View>
+
+          {/* password */}
+          <View style={s.inputWrap}>
+            <Ionicons
+              name="lock-closed-outline"
+              size={18}
+              color={Colors.text.caption}
+            />
+
+            <TextInput
+              placeholder="Password"
+              placeholderTextColor={Colors.text.caption}
+              secureTextEntry={!showPassword}
+              value={password}
+              onChangeText={setPassword}
+              style={s.input}
+            />
+
+            <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+              <Ionicons
+                name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                size={18}
+                color={Colors.text.caption}
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* error */}
+          {!!error && <Text style={s.error}>{error}</Text>}
+
+          {/* submit */}
+          <TouchableOpacity
+            style={[
+              s.submitBtn,
+              loading && {
+                opacity: 0.7,
+              },
+            ]}
+            onPress={handleSubmit}
+            disabled={loading}
+            activeOpacity={0.85}
+          >
+            {loading ? (
+              <ActivityIndicator color={Colors.text.onGold} />
+            ) : (
+              <Text style={s.submitText}>
+                {mode === 'login' ? 'Login' : 'Create Account'}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.surface.base },
-  flex: { flex: 1 },
+  safe: {
+    flex: 1,
+    backgroundColor: '#0A0F1C',
+  },
+
   container: {
     flex: 1,
     justifyContent: 'center',
-    paddingHorizontal: Spacing.xxl,
-    paddingVertical: Spacing.xxxl,
+    paddingHorizontal: Spacing.xl,
   },
 
-  brand: {
-    flexDirection: 'row',
+  // glow
+  glowTop: {
+    position: 'absolute',
+    top: -120,
+    left: -80,
+    width: 260,
+    height: 260,
+    borderRadius: 200,
+    backgroundColor: '#8B6B0020',
+  },
+
+  glowBottom: {
+    position: 'absolute',
+    bottom: -100,
+    right: -60,
+    width: 220,
+    height: 220,
+    borderRadius: 200,
+    backgroundColor: '#1A3A8A20',
+  },
+
+  // logo
+  logoWrap: {
     alignItems: 'center',
-    marginBottom: Spacing.md,
-  },
-  brandIcon: { fontSize: 38, marginRight: Spacing.md },
-  brandName: {
-    fontSize: Typography.size.xxl,
-    fontWeight: Typography.weight.bold,
-    color: Colors.primary.default,
-  },
-  tagline: {
-    fontSize: Typography.size.md,
-    color: Colors.text.body,
-    marginBottom: Spacing.xxl,
+    marginBottom: Spacing.xxxl,
   },
 
-  form: { marginBottom: Spacing.xl },
-  label: {
-    fontSize: Typography.size.sm,
-    color: Colors.text.subtitle,
-    fontWeight: Typography.weight.medium,
-    marginTop: Spacing.lg,
-    marginBottom: Spacing.xs,
-  },
-  input: {
-    backgroundColor: Colors.surface.card,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.surface.elevated,
-    color: Colors.text.title,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: 12,
-    fontSize: Typography.size.md,
-  },
-
-  ownerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: Spacing.lg,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: Radius.sm,
-    borderWidth: 1.5,
-    borderColor: Colors.primary.default,
-    marginRight: Spacing.md,
+  logoCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#8B6B0018',
+    borderWidth: 1.5,
+    borderColor: Colors.primary.default,
+    marginBottom: Spacing.lg,
   },
-  checkboxActive: { backgroundColor: Colors.primary.default },
-  check: {
-    color: Colors.text.onGold,
-    fontSize: 12,
-    fontWeight: Typography.weight.bold,
-  },
-  ownerLabel: { color: Colors.text.body, fontSize: Typography.size.md },
 
-  errorText: {
-    color: Colors.error,
+  title: {
+    fontSize: 30,
+    fontWeight: Typography.weight.bold,
+    color: '#FFFFFF',
+  },
+
+  subtitle: {
+    marginTop: Spacing.sm,
     fontSize: Typography.size.sm,
-    marginTop: Spacing.md,
-    marginBottom: Spacing.xs,
+    color: '#A1A1AA',
   },
 
-  btn: {
-    backgroundColor: Colors.primary.default,
-    borderRadius: Radius.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: Spacing.xl,
+  // card
+  card: {
+    backgroundColor: '#F4F4F5',
+    borderRadius: 34,
+    padding: Spacing.xl,
   },
-  btnDisabled: { opacity: 0.6 },
-  btnText: {
-    color: Colors.text.onGold,
-    fontSize: Typography.size.lg,
+
+  // tabs
+  tabs: {
+    flexDirection: 'row',
+    backgroundColor: '#ECECEC',
+    borderRadius: Radius.full,
+    padding: 4,
+    marginBottom: Spacing.xl,
+  },
+
+  tabBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: Radius.full,
+  },
+
+  tabBtnActive: {
+    backgroundColor: Colors.primary.default,
+  },
+
+  tabText: {
+    color: '#7C7C7C',
+    fontWeight: Typography.weight.semibold,
+    fontSize: Typography.size.sm,
+  },
+
+  tabTextActive: {
+    color: '#FFFFFF',
+  },
+
+  // input
+  inputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#D4D4D8',
+    marginBottom: Spacing.xl,
+    paddingBottom: Spacing.sm,
+  },
+
+  input: {
+    flex: 1,
+    marginLeft: Spacing.md,
+    color: '#111827',
+    fontSize: Typography.size.sm,
+    paddingVertical: 6,
+  },
+
+  // error
+  error: {
+    color: '#DC2626',
+    fontSize: Typography.size.xs,
+    marginBottom: Spacing.md,
+  },
+
+  // button
+  submitBtn: {
+    backgroundColor: Colors.primary.default,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 15,
+    marginTop: Spacing.sm,
+  },
+
+  submitText: {
+    color: '#FFFFFF',
+    fontSize: Typography.size.md,
     fontWeight: Typography.weight.bold,
   },
-
-  toggleBtn: { marginTop: Spacing.xl, alignItems: 'center' },
-  toggleText: { color: Colors.primary.default, fontSize: Typography.size.sm },
 });
