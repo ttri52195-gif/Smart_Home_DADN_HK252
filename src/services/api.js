@@ -35,12 +35,18 @@ async function request(path, { token, body, method = 'GET' } = {}) {
 // ── Auth ──────────────────────────────────────────────────────────────────────
 export async function login(username, password) {
   if (DEV_MODE) return { access_token: 'dev-token', token_type: 'bearer' };
-  return request('/api/auth/login', { method: 'POST', body: { username, password } });
+  return request('/api/auth/login', {
+    method: 'POST',
+    body: { username, password },
+  });
 }
 
 export async function register(username, password, is_house_owner = false) {
   if (DEV_MODE) return { message: 'User registered successfully' };
-  return request('/api/auth/register', { method: 'POST', body: { username, password, is_house_owner } });
+  return request('/api/auth/register', {
+    method: 'POST',
+    body: { username, password, is_house_owner },
+  });
 }
 
 // ── Sensors ───────────────────────────────────────────────────────────────────
@@ -51,11 +57,13 @@ export async function listSensors() {
 
 export async function getSensorValue(sensorId, token) {
   if (DEV_MODE) {
-    const s = MOCK_SENSORS.sensors.find(x => x.key === sensorId);
+    const s = MOCK_SENSORS.sensors.find((x) => x.key === sensorId);
     return s?.last_value ?? '0';
   }
   return request(`/api/sensors/${sensorId}/get_value`, {
-    method: 'POST', token, body: { auth_token: token },
+    method: 'POST',
+    token,
+    body: { auth_token: token },
   });
 }
 
@@ -67,26 +75,52 @@ export async function listDevices() {
 
 export async function getDeviceState(deviceId, token) {
   if (DEV_MODE) {
-    const d = MOCK_DEVICES.devices.find(x => x.key === deviceId);
+    const d = MOCK_DEVICES.devices.find((x) => x.key === deviceId);
     return d?.last_value ?? 'OFF';
   }
   return request(`/api/devices/${deviceId}/get_state`, {
-    method: 'POST', token, body: { auth_token: token },
+    method: 'POST',
+    token,
+    body: { auth_token: token },
   });
 }
 
 export async function setDeviceState(deviceId, state, token) {
   if (DEV_MODE) return { message: 'ok', device_id: deviceId, state };
   return request(`/api/devices/${deviceId}/set_state`, {
-    method: 'POST', token, body: { auth_token: token, state },
+    method: 'POST',
+    token,
+    body: { auth_token: token, state },
   });
 }
+
+// ── Devices ───────────────────────────────────────────────────────────────────
+export const MOCK_ROOMS = [
+  {
+    id: 'bedroom',
+    name: 'Master Bedroom',
+    type: 'BEDROOM',
+    devices: ['lb1', 'rgb', 'door', 'pir'],
+  },
+  {
+    id: 'living',
+    name: 'Living Room',
+    type: 'LIVING',
+    devices: ['light-pwm'],
+  },
+  {
+    id: 'kitchen',
+    name: 'Kitchen',
+    type: 'KITCHEN',
+    devices: ['lb1'],
+  },
+];
 
 // ── Schedules ─────────────────────────────────────────────────────────────────
 export async function listSchedules(token, deviceId = null) {
   if (DEV_MODE) {
     return deviceId
-      ? MOCK_SCHEDULES.filter(s => s.device_id === deviceId)
+      ? MOCK_SCHEDULES.filter((s) => s.device_id === deviceId)
       : MOCK_SCHEDULES;
   }
   const q = deviceId ? `?device_id=${deviceId}` : '';
@@ -95,10 +129,18 @@ export async function listSchedules(token, deviceId = null) {
 
 export async function createSchedule(token, data) {
   if (DEV_MODE) return { id: Date.now(), ...data };
-  return request('/api/schedules', { method: 'POST', token, body: { auth_token: token, ...data } });
+  return request('/api/schedules', {
+    method: 'POST',
+    token,
+    body: { auth_token: token, ...data },
+  });
 }
 
 export async function updateSchedule(token, scheduleId, data) {
   if (DEV_MODE) return { id: scheduleId, ...data };
-  return request(`/api/schedules/${scheduleId}`, { method: 'PUT', token, body: { auth_token: token, ...data } });
+  return request(`/api/schedules/${scheduleId}`, {
+    method: 'PUT',
+    token,
+    body: { auth_token: token, ...data },
+  });
 }

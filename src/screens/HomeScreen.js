@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  ActivityIndicator, RefreshControl,
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,17 +17,37 @@ import { Colors, Typography, Spacing, Radius } from '../theme';
 // ── constants ────────────────────────────────────────────────────
 const SENSOR_KEYS = ['temperature', 'humidity', 'gas', 'rain'];
 const SENSOR_META = {
-  temperature: { label: 'Temperature', unit: '°C', icon: 'thermometer-outline', color: Colors.data.temperature },
-  humidity:    { label: 'Humidity',    unit: '%',  icon: 'water-outline',        color: Colors.data.humidity },
-  gas:         { label: 'Gas',         unit: '',   icon: 'warning-outline',      color: Colors.data.gas },
-  rain:        { label: 'Rain',        unit: '',   icon: 'rainy-outline',         color: Colors.data.rain },
+  temperature: {
+    label: 'Temperature',
+    unit: '°C',
+    icon: 'thermometer-outline',
+    color: Colors.data.temperature,
+  },
+  humidity: {
+    label: 'Humidity',
+    unit: '%',
+    icon: 'water-outline',
+    color: Colors.data.humidity,
+  },
+  gas: {
+    label: 'Gas',
+    unit: '',
+    icon: 'warning-outline',
+    color: Colors.data.gas,
+  },
+  rain: {
+    label: 'Rain',
+    unit: '',
+    icon: 'rainy-outline',
+    color: Colors.data.rain,
+  },
 };
 const TOGGLE_DEVICES = ['lb1', 'pir', 'rgb'];
 const DEVICE_META = {
-  lb1:  { label: 'Light',       icon: 'bulb-outline'          },
-  pir:  { label: 'Motion Det.', icon: 'eye-outline'           },
-  rgb:  { label: 'RGB Strip',   icon: 'color-palette-outline' },
-  door: { label: 'Door',        icon: 'key-outline'           },
+  lb1: { label: 'Light', icon: 'bulb-outline' },
+  pir: { label: 'Motion Det.', icon: 'eye-outline' },
+  rgb: { label: 'RGB Strip', icon: 'color-palette-outline' },
+  door: { label: 'Door', icon: 'key-outline' },
 };
 
 function parseBool(val) {
@@ -39,7 +64,9 @@ function greeting() {
 
 function fmtDate() {
   return new Date().toLocaleDateString('en-US', {
-    weekday: 'long', month: 'short', day: 'numeric',
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
   });
 }
 
@@ -47,18 +74,21 @@ function fmtDate() {
 export default function HomeScreen() {
   const { token, user, signOut } = useAuth();
 
-  const [sensors,    setSensors]    = useState({});
-  const [devices,    setDevices]    = useState({});
-  const [loading,    setLoading]    = useState(true);
+  const [sensors, setSensors] = useState({});
+  const [devices, setDevices] = useState({});
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [cmdLoading, setCmdLoading] = useState({});
-  const [logs,       setLogs]       = useState([]);
+  const [logs, setLogs] = useState([]);
 
   const pollRef = useRef(null);
 
   function addLog(msg) {
-    const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setLogs(prev => [`${ts}  ${msg}`, ...prev].slice(0, 8));
+    const ts = new Date().toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    setLogs((prev) => [`${ts}  ${msg}`, ...prev].slice(0, 8));
   }
 
   const fetchAll = useCallback(async () => {
@@ -66,11 +96,15 @@ export default function HomeScreen() {
       const [sRes, dRes] = await Promise.all([listSensors(), listDevices()]);
 
       const sm = {};
-      (sRes.sensors ?? []).forEach(s => { sm[s.key] = s.last_value ?? s.value ?? null; });
+      (sRes.sensors ?? []).forEach((s) => {
+        sm[s.key] = s.last_value ?? s.value ?? null;
+      });
       setSensors(sm);
 
       const dm = {};
-      (dRes.devices ?? []).forEach(d => { dm[d.key] = d.last_value ?? d.value ?? null; });
+      (dRes.devices ?? []).forEach((d) => {
+        dm[d.key] = d.last_value ?? d.value ?? null;
+      });
       setDevices(dm);
     } catch (e) {
       console.warn('Poll error:', e.message);
@@ -88,28 +122,28 @@ export default function HomeScreen() {
 
   async function handleToggle(key) {
     const next = parseBool(devices[key]) ? 'OFF' : 'ON';
-    setCmdLoading(p => ({ ...p, [key]: true }));
+    setCmdLoading((p) => ({ ...p, [key]: true }));
     try {
       await setDeviceState(key, next, token);
-      setDevices(p => ({ ...p, [key]: next }));
+      setDevices((p) => ({ ...p, [key]: next }));
       addLog(`${DEVICE_META[key]?.label ?? key} → ${next}`);
     } catch (e) {
       addLog(`⚠ ${e.message}`);
     } finally {
-      setCmdLoading(p => ({ ...p, [key]: false }));
+      setCmdLoading((p) => ({ ...p, [key]: false }));
     }
   }
 
   async function handleDoor(state) {
-    setCmdLoading(p => ({ ...p, door: true }));
+    setCmdLoading((p) => ({ ...p, door: true }));
     try {
       await setDeviceState('door', state, token);
-      setDevices(p => ({ ...p, door: state }));
+      setDevices((p) => ({ ...p, door: state }));
       addLog(`Door → ${state}`);
     } catch (e) {
       addLog(`⚠ ${e.message}`);
     } finally {
-      setCmdLoading(p => ({ ...p, door: false }));
+      setCmdLoading((p) => ({ ...p, door: false }));
     }
   }
 
@@ -129,7 +163,9 @@ export default function HomeScreen() {
       {/* Header */}
       <View style={s.header}>
         <View>
-          <Text style={s.greeting}>{greeting()}, {user?.username} 👋</Text>
+          <Text style={s.greeting}>
+            {greeting()}, {user?.username} 👋
+          </Text>
           <Text style={s.date}>{fmtDate()}</Text>
         </View>
         <TouchableOpacity onPress={signOut} style={s.signOutBtn}>
@@ -142,7 +178,10 @@ export default function HomeScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => { setRefreshing(true); fetchAll(); }}
+            onRefresh={() => {
+              setRefreshing(true);
+              fetchAll();
+            }}
             tintColor={Colors.primary.default}
           />
         }
@@ -150,17 +189,25 @@ export default function HomeScreen() {
         {/* ── Sensors ─────────────────────────────────── */}
         <Text style={s.sectionTitle}>Environment</Text>
         <View style={s.grid}>
-          {SENSOR_KEYS.map(key => {
+          {SENSOR_KEYS.map((key) => {
             const meta = SENSOR_META[key];
-            const raw  = sensors[key];
-            const num  = parseFloat(raw);
-            const display = (raw !== null && raw !== undefined && !isNaN(num))
-              ? `${num.toFixed(1)}${meta.unit}`
-              : '—';
+            const raw = sensors[key];
+            const num = parseFloat(raw);
+            const display =
+              raw !== null && raw !== undefined && !isNaN(num)
+                ? `${num.toFixed(1)}${meta.unit}`
+                : '—';
             return (
               <View key={key} style={s.sensorCard}>
-                <Ionicons name={meta.icon} size={24} color={meta.color} style={{ marginBottom: Spacing.sm }} />
-                <Text style={[s.sensorValue, { color: meta.color }]}>{display}</Text>
+                <Ionicons
+                  name={meta.icon}
+                  size={24}
+                  color={meta.color}
+                  style={{ marginBottom: Spacing.sm }}
+                />
+                <Text style={[s.sensorValue, { color: meta.color }]}>
+                  {display}
+                </Text>
                 <Text style={s.sensorLabel}>{meta.label}</Text>
               </View>
             );
@@ -170,7 +217,7 @@ export default function HomeScreen() {
         {/* ── Toggle devices ───────────────────────────── */}
         <Text style={s.sectionTitle}>Quick Controls</Text>
         <View style={s.grid}>
-          {TOGGLE_DEVICES.map(key => {
+          {TOGGLE_DEVICES.map((key) => {
             const isOn = parseBool(devices[key]);
             const meta = DEVICE_META[key];
             return (
@@ -181,16 +228,35 @@ export default function HomeScreen() {
                 disabled={!!cmdLoading[key]}
                 activeOpacity={0.8}
               >
-                {cmdLoading[key]
-                  ? <ActivityIndicator color={Colors.primary.default} />
-                  : <>
-                      <Ionicons name={meta.icon} size={26} color={isOn ? Colors.primary.default : Colors.text.caption} style={{ marginBottom: Spacing.sm }} />
-                      <Text style={[s.deviceLabel, isOn && s.deviceLabelOn]}>{meta.label}</Text>
-                      <View style={[s.pill, { backgroundColor: isOn ? Colors.state.on : Colors.state.off }]}>
-                        <Text style={s.pillText}>{isOn ? 'ON' : 'OFF'}</Text>
-                      </View>
-                    </>
-                }
+                {cmdLoading[key] ? (
+                  <ActivityIndicator color={Colors.primary.default} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name={meta.icon}
+                      size={26}
+                      color={
+                        isOn ? Colors.primary.default : Colors.text.caption
+                      }
+                      style={{ marginBottom: Spacing.sm }}
+                    />
+                    <Text style={[s.deviceLabel, isOn && s.deviceLabelOn]}>
+                      {meta.label}
+                    </Text>
+                    <View
+                      style={[
+                        s.pill,
+                        {
+                          backgroundColor: isOn
+                            ? Colors.state.on
+                            : Colors.state.off,
+                        },
+                      ]}
+                    >
+                      <Text style={s.pillText}>{isOn ? 'ON' : 'OFF'}</Text>
+                    </View>
+                  </>
+                )}
               </TouchableOpacity>
             );
           })}
@@ -199,7 +265,12 @@ export default function HomeScreen() {
         {/* ── Door ─────────────────────────────────────── */}
         <View style={s.doorCard}>
           <View style={s.doorLeft}>
-            <Ionicons name={DEVICE_META.door.icon} size={24} color={Colors.text.caption} style={{ marginRight: Spacing.sm }} />
+            <Ionicons
+              name={DEVICE_META.door.icon}
+              size={24}
+              color={Colors.text.caption}
+              style={{ marginRight: Spacing.sm }}
+            />
             <View>
               <Text style={s.deviceLabel}>Front Door</Text>
               <Text style={s.doorStatus}>
@@ -207,23 +278,38 @@ export default function HomeScreen() {
               </Text>
             </View>
           </View>
-          {cmdLoading.door
-            ? <ActivityIndicator color={Colors.primary.default} />
-            : <View style={s.doorButtons}>
-                <TouchableOpacity
-                  style={[s.doorBtn, devices.door === 'OPEN' && s.doorBtnActive]}
-                  onPress={() => handleDoor('OPEN')}
+          {cmdLoading.door ? (
+            <ActivityIndicator color={Colors.primary.default} />
+          ) : (
+            <View style={s.doorButtons}>
+              <TouchableOpacity
+                style={[s.doorBtn, devices.door === 'OPEN' && s.doorBtnActive]}
+                onPress={() => handleDoor('OPEN')}
+              >
+                <Text
+                  style={[
+                    s.doorBtnText,
+                    devices.door === 'OPEN' && { color: Colors.text.onGold },
+                  ]}
                 >
-                  <Text style={[s.doorBtnText, devices.door === 'OPEN' && { color: Colors.text.onGold }]}>Open</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[s.doorBtn, devices.door !== 'OPEN' && s.doorBtnActive]}
-                  onPress={() => handleDoor('CLOSE')}
+                  Open
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.doorBtn, devices.door !== 'OPEN' && s.doorBtnActive]}
+                onPress={() => handleDoor('CLOSE')}
+              >
+                <Text
+                  style={[
+                    s.doorBtnText,
+                    devices.door !== 'OPEN' && { color: Colors.text.onGold },
+                  ]}
                 >
-                  <Text style={[s.doorBtnText, devices.door !== 'OPEN' && { color: Colors.text.onGold }]}>Close</Text>
-                </TouchableOpacity>
-              </View>
-          }
+                  Close
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* ── Activity log ─────────────────────────────── */}
@@ -232,7 +318,9 @@ export default function HomeScreen() {
             <Text style={s.sectionTitle}>Activity</Text>
             <View style={s.logCard}>
               {logs.map((l, i) => (
-                <Text key={i} style={[s.logEntry, i > 0 && s.logBorder]}>{l}</Text>
+                <Text key={i} style={[s.logEntry, i > 0 && s.logBorder]}>
+                  {l}
+                </Text>
               ))}
             </View>
           </>
@@ -246,121 +334,169 @@ export default function HomeScreen() {
 
 // ── styles ───────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  safe:    { flex: 1, backgroundColor: Colors.surface.base },
+  safe: { flex: 1, backgroundColor: Colors.surface.base },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  loadingText: { color: Colors.text.body, marginTop: Spacing.lg, fontSize: Typography.size.md },
+  loadingText: {
+    color: Colors.text.body,
+    marginTop: Spacing.lg,
+    fontSize: Typography.size.md,
+  },
 
   header: {
-    flexDirection:    'row',
-    justifyContent:   'space-between',
-    alignItems:       'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: Spacing.xl,
-    paddingVertical:   Spacing.lg,
-    backgroundColor:  Colors.surface.overlay,
+    paddingVertical: Spacing.lg,
+    backgroundColor: Colors.surface.overlay,
   },
-  greeting: { fontSize: Typography.size.lg, color: Colors.text.title, fontWeight: Typography.weight.semibold },
-  date:     { fontSize: Typography.size.sm, color: Colors.text.caption, marginTop: 2 },
+  greeting: {
+    fontSize: Typography.size.lg,
+    color: Colors.text.title,
+    fontWeight: Typography.weight.semibold,
+  },
+  date: {
+    fontSize: Typography.size.sm,
+    color: Colors.text.caption,
+    marginTop: 2,
+  },
   signOutBtn: {
     paddingHorizontal: Spacing.lg,
-    paddingVertical:   Spacing.sm,
-    borderRadius:      Radius.full,
-    borderWidth:       1,
-    borderColor:       Colors.surface.elevated,
+    paddingVertical: Spacing.sm,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.surface.elevated,
   },
   signOutText: { color: Colors.text.caption, fontSize: Typography.size.xs },
 
   sectionTitle: {
-    fontSize:      Typography.size.xs,
-    color:         Colors.text.caption,
-    fontWeight:    Typography.weight.semibold,
+    fontSize: Typography.size.xs,
+    color: Colors.text.caption,
+    fontWeight: Typography.weight.semibold,
     letterSpacing: 1.2,
     textTransform: 'uppercase',
-    marginLeft:    Spacing.xl,
-    marginTop:     Spacing.xl,
-    marginBottom:  Spacing.md,
+    marginLeft: Spacing.xl,
+    marginTop: Spacing.xl,
+    marginBottom: Spacing.md,
   },
 
   // 2-col grid
   grid: {
-    flexDirection:  'row',
-    flexWrap:       'wrap',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: Spacing.lg,
-    gap:            Spacing.md,
+    gap: Spacing.md,
   },
 
   // Sensor card
   sensorCard: {
-    flex:            1,
-    minWidth:        '44%',
+    flex: 1,
+    minWidth: '44%',
     backgroundColor: Colors.surface.card,
-    borderRadius:    Radius.lg,
-    padding:         Spacing.lg,
-    alignItems:      'center',
-    borderWidth:     1,
-    borderColor:     Colors.surface.elevated,
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.surface.elevated,
   },
-  sensorValue: { fontSize: Typography.size.xl, fontWeight: Typography.weight.bold },
-  sensorLabel: { fontSize: Typography.size.xs, color: Colors.text.caption, marginTop: 2 },
+  sensorValue: {
+    fontSize: Typography.size.xl,
+    fontWeight: Typography.weight.bold,
+  },
+  sensorLabel: {
+    fontSize: Typography.size.xs,
+    color: Colors.text.caption,
+    marginTop: 2,
+  },
 
   // Device toggle card
   deviceCard: {
-    flex:            1,
-    minWidth:        '44%',
+    flex: 1,
+    minWidth: '44%',
     backgroundColor: Colors.surface.card,
-    borderRadius:    Radius.lg,
-    padding:         Spacing.lg,
-    alignItems:      'center',
-    borderWidth:     1.5,
-    borderColor:     Colors.surface.elevated,
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: Colors.surface.elevated,
   },
   deviceCardOn: {
-    borderColor:     Colors.primary.default,
+    borderColor: Colors.primary.default,
     backgroundColor: '#52441620', // primary.darker at ~12% opacity
   },
-  deviceLabel:   { fontSize: Typography.size.sm, color: Colors.text.body, marginBottom: Spacing.md },
+  deviceLabel: {
+    fontSize: Typography.size.sm,
+    color: Colors.text.body,
+    marginBottom: Spacing.md,
+  },
   deviceLabelOn: { color: Colors.primary.subtle },
 
   pill: {
     paddingHorizontal: Spacing.lg,
-    paddingVertical:   Spacing.xs,
-    borderRadius:      Radius.full,
+    paddingVertical: Spacing.xs,
+    borderRadius: Radius.full,
   },
-  pillText: { color: Colors.text.onGold, fontSize: Typography.size.xs, fontWeight: Typography.weight.bold },
+  pillText: {
+    color: Colors.text.onGold,
+    fontSize: Typography.size.xs,
+    fontWeight: Typography.weight.bold,
+  },
 
   // Door card
   doorCard: {
-    flexDirection:    'row',
-    alignItems:       'center',
+    flexDirection: 'row',
+    alignItems: 'center',
     marginHorizontal: Spacing.xl,
-    marginTop:        Spacing.md,
-    backgroundColor:  Colors.surface.card,
-    borderRadius:     Radius.lg,
-    padding:          Spacing.lg,
-    borderWidth:      1,
-    borderColor:      Colors.surface.elevated,
+    marginTop: Spacing.md,
+    backgroundColor: Colors.surface.card,
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.surface.elevated,
   },
-  doorLeft:   { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.lg },
-  doorStatus: { fontSize: Typography.size.xs, color: Colors.text.caption, marginTop: 2 },
+  doorLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.lg,
+  },
+  doorStatus: {
+    fontSize: Typography.size.xs,
+    color: Colors.text.caption,
+    marginTop: 2,
+  },
   doorButtons: { flexDirection: 'row', gap: Spacing.sm },
   doorBtn: {
     paddingHorizontal: Spacing.lg,
-    paddingVertical:   Spacing.sm,
-    borderRadius:      Radius.md,
-    borderWidth:       1,
-    borderColor:       Colors.surface.elevated,
+    paddingVertical: Spacing.sm,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.surface.elevated,
   },
-  doorBtnActive: { backgroundColor: Colors.primary.default, borderColor: Colors.primary.default },
-  doorBtnText:   { color: Colors.text.body, fontSize: Typography.size.xs, fontWeight: Typography.weight.medium },
+  doorBtnActive: {
+    backgroundColor: Colors.primary.default,
+    borderColor: Colors.primary.default,
+  },
+  doorBtnText: {
+    color: Colors.text.body,
+    fontSize: Typography.size.xs,
+    fontWeight: Typography.weight.medium,
+  },
 
   // Log
   logCard: {
     marginHorizontal: Spacing.xl,
-    backgroundColor:  Colors.surface.card,
-    borderRadius:     Radius.lg,
-    overflow:         'hidden',
-    borderWidth:      1,
-    borderColor:      Colors.surface.elevated,
+    backgroundColor: Colors.surface.card,
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.surface.elevated,
   },
-  logEntry:  { color: Colors.text.caption, fontSize: Typography.size.xs, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
+  logEntry: {
+    color: Colors.text.caption,
+    fontSize: Typography.size.xs,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+  },
   logBorder: { borderTopWidth: 1, borderTopColor: Colors.surface.elevated },
 });
