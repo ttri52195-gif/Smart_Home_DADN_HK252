@@ -9,12 +9,14 @@
       "backgroundColor": "#292D31"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.hieu.phamth.smarthouse-app"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#292D31"
-      }
+      },
+      "package": "com.hieu.phamth.smarthouseapp"
     },
     "plugins": [
       "@react-native-community/datetimepicker"

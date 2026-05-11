@@ -2,14 +2,17 @@
 // Used when DEV_MODE = true in api.js.
 
 export const MOCK_SENSORS = {
-  sensors: [
-    { key: 'temperature', name: 'Temperature', last_value: '27.4' },
-    { key: 'humidity', name: 'Humidity', last_value: '65.2' },
-    { key: 'gas', name: 'Gas', last_value: '312' },
-    { key: 'rain', name: 'Rain', last_value: '85' },
-    { key: 'themis', name: 'Light', last_value: '48.0' },
-  ],
-  count: 5,
+  success: true,
+  data: {
+    sensors: [
+      { feed_key: 'temperature', name: 'temperature', type: 'TEMPERATURE',    current_value: '27.4', last_recorded_at: '2026-05-08T07:26:43+00:00' },
+      { feed_key: 'humidity',    name: 'humidity',    type: 'HUMIDITY',        current_value: '65.2', last_recorded_at: '2026-05-08T07:26:43+00:00' },
+      { feed_key: 'rain',        name: 'rain',        type: 'RAIN',            current_value: '85',   last_recorded_at: '2026-05-08T07:26:43+00:00' },
+      { feed_key: 'gas',         name: 'gas',         type: 'GAS',             current_value: '312',  last_recorded_at: '2026-05-08T07:26:43+00:00' },
+      { feed_key: 'themis',      name: 'themis',      type: 'LIGHT_INTENSITY', current_value: '48.0', last_recorded_at: '2026-05-08T07:26:43+00:00' },
+    ],
+    count: 5,
+  },
 };
 
 export const MOCK_ROOMS = [

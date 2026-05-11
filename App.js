@@ -1,10 +1,11 @@
 import 'react-native-gesture-handler';
 import React from 'react';
+import { Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { SymbolView } from 'expo-symbols';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import LoginScreen from './src/screens/LoginScreen';
@@ -17,35 +18,26 @@ import { Colors, Typography } from './src/theme';
 
 const Tab = createBottomTabNavigator();
 
-// active icon (filled) / inactive icon (outline) pairs
 const TAB_SCREENS = [
   {
-    name: 'Home',
-    component: HomeScreen,
-    label: 'Home',
-    icon: 'home',
-    iconOutline: 'home-outline',
+    name: 'Home', component: HomeScreen, label: 'Home',
+    icon: Platform.OS === 'ios' ? 'house' : 'home',
   },
   {
-    name: 'Devices',
-    component: DevicesScreen,
-    label: 'Devices',
-    icon: 'flash',
-    iconOutline: 'flash-outline',
+    name: 'Devices', component: DevicesScreen, label: 'Devices',
+    icon: Platform.OS === 'ios' ? 'list.bullet' : 'bolt',
   },
   {
-    name: 'Charts',
-    component: ChartScreen,
-    label: 'Charts',
-    icon: 'bar-chart',
-    iconOutline: 'bar-chart-outline',
+    name: 'Alerts', component: AlertScreen, label: 'Alerts',
+    icon: Platform.OS === 'ios' ? 'bell' : 'notifications',
   },
   {
-    name: 'Alerts',
-    component: AlertScreen,
-    label: 'Alerts',
-    icon: 'notifications',
-    iconOutline: 'notifications-outline',
+    name: 'Charts', component: ChartScreen, label: 'Charts',
+    icon: Platform.OS === 'ios' ? 'chart.xyaxis.line' : 'bar_chart',
+  },
+  {
+    name: 'Settings', component: AlertScreen, label: 'Settings',
+    icon: Platform.OS === 'ios' ? 'gearshape' : 'settings',
   },
 ];
 
@@ -68,18 +60,19 @@ function MainTabs() {
         tabBarLabelStyle: { fontSize: Typography.size.xs, marginBottom: 4 },
       }}
     >
-      {TAB_SCREENS.map(({ name, component, label, icon, iconOutline }) => (
+      {TAB_SCREENS.map(({ name, component, label, icon }) => (
         <Tab.Screen
           key={name}
           name={name}
           component={component}
           options={{
             tabBarLabel: label,
-            tabBarIcon: ({ color, focused }) => (
-              <Ionicons
-                name={focused ? icon : iconOutline}
+            tabBarIcon: ({ color }) => (
+              <SymbolView
+                name={icon}
                 size={22}
-                color={color}
+                tintColor={color}
+                type="monochrome"
               />
             ),
           }}

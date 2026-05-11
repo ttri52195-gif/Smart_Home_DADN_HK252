@@ -11,7 +11,7 @@ export const DEV_MODE = true;
 //   iOS Simulator  → 'http://localhost:8000'
 //   Android Emu    → 'http://10.0.2.2:8000'
 //   Physical phone → 'http://<your-lan-ip>:8000'
-export const API_BASE_URL = 'http://localhost:8000';
+export const API_BASE_URL = 'http://localhost:8001';
 
 // ── Internal fetch helper ─────────────────────────────────────────────────────
 async function request(path, { token, body, method = 'GET' } = {}) {
@@ -57,8 +57,8 @@ export async function listSensors() {
 
 export async function getSensorValue(sensorId, token) {
   if (DEV_MODE) {
-    const s = MOCK_SENSORS.sensors.find((x) => x.key === sensorId);
-    return s?.last_value ?? '0';
+    const s = (MOCK_SENSORS.data?.sensors ?? []).find(x => x.feed_key === sensorId);
+    return s?.current_value ?? '0';
   }
   return request(`/api/sensors/${sensorId}/get_value`, {
     method: 'POST',
@@ -93,28 +93,6 @@ export async function setDeviceState(deviceId, state, token) {
     body: { auth_token: token, state },
   });
 }
-
-// ── Devices ───────────────────────────────────────────────────────────────────
-export const MOCK_ROOMS = [
-  {
-    id: 'bedroom',
-    name: 'Master Bedroom',
-    type: 'BEDROOM',
-    devices: ['lb1', 'rgb', 'door', 'pir'],
-  },
-  {
-    id: 'living',
-    name: 'Living Room',
-    type: 'LIVING',
-    devices: ['light-pwm'],
-  },
-  {
-    id: 'kitchen',
-    name: 'Kitchen',
-    type: 'KITCHEN',
-    devices: ['lb1'],
-  },
-];
 
 // ── Schedules ─────────────────────────────────────────────────────────────────
 export async function listSchedules(token, deviceId = null) {
