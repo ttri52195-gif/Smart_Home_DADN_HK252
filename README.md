@@ -21,8 +21,8 @@ Mobile frontend for the Smart House system, built with React Native and Expo. Co
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | React Native 0.81.5 |
-| Runtime | Expo SDK 54 |
+| Framework | React Native 0.76.9 |
+| Runtime | Expo SDK 52 |
 | Navigation | React Navigation v6 (Bottom Tabs) |
 | Auth state | React Context (in-memory JWT) |
 | Backend API | FastAPI (`code/smarthouse`) via fetch |
@@ -126,14 +126,25 @@ Tokens are in `src/theme/index.js`, derived from the `ux-ui/` design files.
 ### Prerequisites
 
 - Node.js 18+
-- **Expo Go** app on your phone ([iOS](https://apps.apple.com/app/expo-go/id982107779) / [Android](https://play.google.com/store/apps/details?id=host.exp.exponent))
+- Xcode 15.1+ (macOS — for iOS builds; Xcode 16 is **not** required)
 - Backend running — see `code/smarthouse/README.md`
 
 ### Install dependencies
 
+> **Important:** This project requires `--legacy-peer-deps` due to React Native peer dependency conflicts. Plain `npm install` will silently skip core Expo packages.
+
 ```bash
 cd code/smarthouse-app
-npm install
+rm -rf node_modules
+npm install --legacy-peer-deps
+npx expo install --fix
+```
+
+### Build and run (iOS)
+
+```bash
+npx expo prebuild
+npx expo run:ios
 ```
 
 ### Configure the API URL

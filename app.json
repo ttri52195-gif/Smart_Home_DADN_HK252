@@ -19,7 +19,9 @@
       "package": "com.hieu.phamth.smarthouseapp"
     },
     "plugins": [
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-asset",
+      "expo-font"
     ]
   }
 }
