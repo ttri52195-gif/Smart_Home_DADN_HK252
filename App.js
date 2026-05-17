@@ -8,40 +8,41 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
-import LoginScreen from './src/screens/LoginScreen';
-import HomeScreen from './src/screens/HomeScreen';
-import DevicesScreen from './src/screens/DevicesScreen';
-import RoomSettingScreen from './src/screens/RoomSetting/RoomSettingScreen';
-import ChartScreen from './src/screens/ChartScreen';
-import AlertScreen from './src/screens/AlertScreen';
+import LoginScreen           from './src/screens/LoginScreen';
+import HomeScreen            from './src/screens/HomeScreen';
+import DevicesScreen         from './src/screens/DevicesScreen';
+import AlertScreen           from './src/screens/AlertScreen';
+import ChartScreen           from './src/screens/ChartScreen';
+import SettingsScreen        from './src/screens/SettingsScreen';
+import AccountSettingsScreen from './src/screens/AccountSettingsScreen';
+import RoomSettingScreen     from './src/screens/RoomSetting/RoomSettingScreen';
 import { Colors, Typography } from './src/theme';
 
-const Tab = createBottomTabNavigator();
+const Tab   = createBottomTabNavigator();
+const Stack = createStackNavigator();
 
 const TAB_SCREENS = [
   {
-    name: 'Home', component: HomeScreen, label: 'Home',
-    icon: Platform.OS === 'ios' ? 'house' : 'home',
+    name: 'Home',     component: HomeScreen,     label: 'Home',
+    icon: Platform.OS === 'ios' ? 'house'            : 'home',
   },
   {
-    name: 'Devices', component: DevicesScreen, label: 'Devices',
-    icon: Platform.OS === 'ios' ? 'list.bullet' : 'bolt',
+    name: 'Devices',  component: DevicesScreen,  label: 'Devices',
+    icon: Platform.OS === 'ios' ? 'list.bullet'      : 'bolt',
   },
   {
-    name: 'Alerts', component: AlertScreen, label: 'Alerts',
-    icon: Platform.OS === 'ios' ? 'bell' : 'notifications',
+    name: 'Alerts',   component: AlertScreen,    label: 'Alerts',
+    icon: Platform.OS === 'ios' ? 'bell'             : 'notifications',
   },
   {
-    name: 'Charts', component: ChartScreen, label: 'Charts',
+    name: 'Charts',   component: ChartScreen,    label: 'Charts',
     icon: Platform.OS === 'ios' ? 'chart.xyaxis.line' : 'bar_chart',
   },
   {
-    name: 'Settings', component: AlertScreen, label: 'Settings',
-    icon: Platform.OS === 'ios' ? 'gearshape' : 'settings',
+    name: 'Settings', component: SettingsScreen, label: 'Settings',
+    icon: Platform.OS === 'ios' ? 'gearshape'        : 'settings',
   },
 ];
-
-const Stack = createStackNavigator();
 
 function MainTabs() {
   return (
@@ -50,12 +51,12 @@ function MainTabs() {
         headerShown: false,
         tabBarStyle: {
           backgroundColor: Colors.surface.overlay,
-          borderTopColor: Colors.surface.elevated,
-          borderTopWidth: 1,
-          paddingBottom: 4,
-          height: 58,
+          borderTopColor:  Colors.surface.elevated,
+          borderTopWidth:  1,
+          paddingBottom:   4,
+          height:          58,
         },
-        tabBarActiveTintColor: Colors.primary.default,
+        tabBarActiveTintColor:   Colors.primary.default,
         tabBarInactiveTintColor: Colors.text.caption,
         tabBarLabelStyle: { fontSize: Typography.size.xs, marginBottom: 4 },
       }}
@@ -88,10 +89,15 @@ function RootNavigator() {
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="Main" component={MainTabs} />
+      <Stack.Screen name="Main"            component={MainTabs} />
       <Stack.Screen
         name="RoomSetting"
         component={RoomSettingScreen}
+        options={{ presentation: 'card' }}
+      />
+      <Stack.Screen
+        name="AccountSettings"
+        component={AccountSettingsScreen}
         options={{ presentation: 'card' }}
       />
     </Stack.Navigator>

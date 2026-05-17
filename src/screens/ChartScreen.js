@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { getSensorHistory } from '../services/api';
 import { getFeedHistory } from '../services/adafruitIO';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 
@@ -123,6 +124,12 @@ const chart = StyleSheet.create({
   xLabel:   { color: Colors.text.caption, fontSize: 9 },
 });
 
+function formatDate() {
+  return new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric',
+  });
+}
+
 // ── Screen ────────────────────────────────────────────────────────
 export default function ChartScreen() {
   const [selected,    setSelected]    = useState(FEEDS[0].key);
@@ -133,13 +140,36 @@ export default function ChartScreen() {
 
   const feed = FEEDS.find(f => f.key === selected);
 
+  // Try backend POST /api/sensors/history first; fall back to Adafruit IO.
+  // Backend response assumed: [{ value, created_at }]
+  // AIO response shape (from adafruitIO.js): [{ value, time }]
   const fetchHistory = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getFeedHistory(selected, 30);
+      const end   = new Date().toISOString();
+      const start = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(); // last 2 h
+      let data = await getSensorHistory(null, selected, start, end);
+
+      if (Array.isArray(data) && data.length > 0) {
+        // Normalise backend shape → { value: number, time: Date }
+        data = data.map(d => ({
+          value: parseFloat(d.value),
+          time:  new Date(d.created_at ?? d.time),
+        })).filter(d => !isNaN(d.value));
+      } else {
+        // Fallback: fetch from Adafruit IO
+        data = await getFeedHistory(selected, 30);
+      }
+
       setHistory(prev => ({ ...prev, [selected]: data }));
     } catch (e) {
-      console.warn(e.message);
+      console.warn('Backend history failed, falling back to AIO:', e.message);
+      try {
+        const data = await getFeedHistory(selected, 30);
+        setHistory(prev => ({ ...prev, [selected]: data }));
+      } catch (aioErr) {
+        console.warn('AIO fallback also failed:', aioErr.message);
+      }
     } finally {
       setLoading(false);
       setCountdown(REFRESH_INTERVAL);
@@ -174,10 +204,18 @@ export default function ChartScreen() {
     <SafeAreaView style={s.safe}>
       {/* Header */}
       <View style={s.header}>
-        <Text style={s.headerTitle}>Charts</Text>
-        <TouchableOpacity onPress={fetchHistory} style={s.refreshBtn}>
-          <Text style={s.refreshText}>↻ {countdown}s</Text>
-        </TouchableOpacity>
+        <View>
+          <Text style={s.headerTitle}>Charts</Text>
+          <Text style={s.headerDate}>{formatDate()}</Text>
+        </View>
+        <View style={s.headerRight}>
+          <TouchableOpacity onPress={fetchHistory} style={s.refreshBtn}>
+            <Text style={s.refreshText}>↻ {countdown}s</Text>
+          </TouchableOpacity>
+          <View style={s.avatar}>
+            <Ionicons name="person" size={18} color={Colors.text.title} />
+          </View>
+        </View>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -249,15 +287,22 @@ const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.surface.base },
 
   header: {
-    flexDirection:    'row',
-    alignItems:       'center',
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'space-between',
     paddingHorizontal: Spacing.xl,
     paddingVertical:   Spacing.lg,
-    backgroundColor:  Colors.surface.overlay,
   },
-  headerTitle: { flex: 1, fontSize: Typography.size.xl, color: Colors.text.title, fontWeight: Typography.weight.bold },
+  headerTitle: { fontSize: 26, color: Colors.text.title, fontWeight: Typography.weight.bold },
+  headerDate:  { color: Colors.text.caption, fontSize: Typography.size.sm, marginTop: 2 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   refreshBtn:  { paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, borderRadius: Radius.full, backgroundColor: Colors.surface.elevated },
   refreshText: { color: Colors.primary.default, fontSize: Typography.size.sm, fontWeight: Typography.weight.semibold },
+  avatar: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: Colors.primary.brand,
+    alignItems: 'center', justifyContent: 'center',
+  },
 
   tabs: { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg, gap: Spacing.md },
   tab: {

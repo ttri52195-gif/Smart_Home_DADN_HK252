@@ -1,12 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  RefreshControl,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,37 +9,89 @@ import { useAuth } from '../context/AuthContext';
 import { listDevices, setDeviceState } from '../services/api';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 
+const FILTERS = ['All', 'Doors', 'Lights', 'Curtains', 'Climate'];
+
+const ROOMS = [
+  { id: 'bedroom', name: 'Master Bedroom', icon: 'bed-outline',        count: 4 },
+  { id: 'living',  name: 'Living Room',    icon: 'tv-outline',          count: 5 },
+  { id: 'kitchen', name: 'Kitchen',        icon: 'restaurant-outline',  count: 1 },
+];
+
+const TYPE_FILTER = {
+  DOOR:    'Doors',
+  LIGHT:   'Lights',
+  DIMMER:  'Lights',
+  RGB:     'Curtains',
+  MOTION:  'Climate',
+  GENERIC: 'Climate',
+};
+
 const TYPE_META = {
-  DOOR: { icon: 'key-outline', isDoor: true },
-  LIGHT: { icon: 'bulb-outline', isToggle: true },
-  DIMMER: { icon: 'sunny-outline', isToggle: true },
-  MOTION: { icon: 'eye-outline', isToggle: true },
-  RGB: { icon: 'color-palette-outline', isToggle: true },
-  GENERIC: { icon: 'flash-outline', isToggle: true },
+  DOOR:    { icon: 'lock-closed-outline', isDoor: true  },
+  LIGHT:   { icon: 'bulb-outline',        isToggle: true },
+  DIMMER:  { icon: 'sunny-outline',       isToggle: true },
+  MOTION:  { icon: 'aperture-outline',    isToggle: true, isAuto: true },
+  RGB:     { icon: 'reorder-three-outline', isToggle: true, isAuto: true },
+  GENERIC: { icon: 'flash-outline',       isToggle: true },
+};
+
+const DEVICE_ROOM = {
+  lb1:        'Master Bedroom',
+  door:       'Garden',
+  pir:        'Living Room',
+  rgb:        'Living Room',
+  'light-pwm': 'Living Room',
 };
 
 function parseBool(val) {
-  const s = String(val ?? '').toUpperCase();
-  return s === 'ON' || s === '1' || s === 'TRUE' || s === 'OPEN';
+  const v = String(val ?? '').toUpperCase();
+  return v === 'ON' || v === '1' || v === 'TRUE' || v === 'OPEN';
 }
+
+function formatDate() {
+  return new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric',
+  });
+}
+
+function Toggle({ value, color = Colors.success, onPress }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.85}
+      style={[ds.toggle, { backgroundColor: value ? color : Colors.surface.elevated }]}
+    >
+      <View style={[ds.knob, { alignSelf: value ? 'flex-end' : 'flex-start' }]} />
+    </TouchableOpacity>
+  );
+}
+
+const ds = StyleSheet.create({
+  toggle: { width: 44, height: 24, borderRadius: 12, padding: 2, justifyContent: 'center' },
+  knob: {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: '#fff',
+    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+  },
+});
 
 export default function DevicesScreen({ navigation }) {
   const { token } = useAuth();
-  const [devices, setDevices] = useState([]);
-  const [states, setStates] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [cmdLoading, setCmdLoading] = useState({});
+  const [devices,      setDevices]      = useState([]);
+  const [states,       setStates]       = useState({});
+  const [loading,      setLoading]      = useState(true);
+  const [refreshing,   setRefreshing]   = useState(false);
+  const [cmdLoading,   setCmdLoading]   = useState({});
+  const [activeFilter, setActiveFilter] = useState('All');
 
   const fetchDevices = useCallback(async () => {
     try {
-      const res = await listDevices();
+      const res  = await listDevices();
       const list = res.devices ?? [];
       setDevices(list);
       const sm = {};
-      list.forEach((d) => {
-        sm[d.key] = d.last_value ?? d.value ?? null;
-      });
+      list.forEach(d => { sm[d.feed_key ?? d.key] = d.value ?? d.last_value ?? null; });
       setStates(sm);
     } catch (e) {
       console.warn('Devices fetch failed:', e.message);
@@ -54,41 +101,36 @@ export default function DevicesScreen({ navigation }) {
     }
   }, []);
 
-  useEffect(() => {
-    fetchDevices();
-  }, [fetchDevices]);
+  useEffect(() => { fetchDevices(); }, [fetchDevices]);
 
   async function handleToggle(key) {
     const next = parseBool(states[key]) ? 'OFF' : 'ON';
-    setCmdLoading((p) => ({ ...p, [key]: true }));
+    setCmdLoading(p => ({ ...p, [key]: true }));
     try {
       await setDeviceState(key, next, token);
-      setStates((p) => ({ ...p, [key]: next }));
+      setStates(p => ({ ...p, [key]: next }));
     } catch (e) {
       console.warn(e.message);
     } finally {
-      setCmdLoading((p) => ({ ...p, [key]: false }));
+      setCmdLoading(p => ({ ...p, [key]: false }));
     }
   }
 
-  async function handleDoor(key, state) {
-    setCmdLoading((p) => ({ ...p, [key]: true }));
+  async function handleDoor(key, next) {
+    setCmdLoading(p => ({ ...p, [key]: true }));
     try {
-      await setDeviceState(key, state, token);
-      setStates((p) => ({ ...p, [key]: state }));
+      await setDeviceState(key, next, token);
+      setStates(p => ({ ...p, [key]: next }));
     } catch (e) {
       console.warn(e.message);
     } finally {
-      setCmdLoading((p) => ({ ...p, [key]: false }));
+      setCmdLoading(p => ({ ...p, [key]: false }));
     }
   }
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchDevices();
-  };
-
-  const onlineCount = devices.filter((d) => parseBool(states[d.key])).length;
+  const filteredDevices = devices.filter(d =>
+    activeFilter === 'All' || TYPE_FILTER[d.type] === activeFilter
+  );
 
   if (loading) {
     return (
@@ -102,271 +144,238 @@ export default function DevicesScreen({ navigation }) {
 
   return (
     <SafeAreaView style={s.safe}>
-      {/* Header */}
+
+      {/* ── Header ─────────────────────────────────────── */}
       <View style={s.header}>
-        <Text style={s.headerTitle}>Devices</Text>
-        <View style={s.badge}>
-          <Text style={s.badgeText}>
-            {onlineCount} / {devices.length} active
-          </Text>
+        <View>
+          <Text style={s.title}>Devices</Text>
+          <Text style={s.date}>{formatDate()}</Text>
         </View>
         <TouchableOpacity
-          style={s.roomBtn}
-          onPress={() =>
-            navigation.navigate('RoomSetting', {
-              roomName: 'Bedroom',
-              devices: [
-                {
-                  key: 'lb1',
-                  name: 'Light Bulb 1',
-                  type: 'LIGHT',
-                  last_value: 'ON',
-                },
-                {
-                  key: 'pir',
-                  name: 'Motion Sensor',
-                  type: 'MOTION',
-                  last_value: 'OFF',
-                },
-                {
-                  key: 'rgb',
-                  name: 'RGB Strip',
-                  type: 'RGB',
-                  last_value: 'OFF',
-                },
-                {
-                  key: 'light-pwm',
-                  name: 'Dimmer Light',
-                  type: 'DIMMER',
-                  last_value: 'OFF',
-                },
-              ],
-            })
-          }
+          style={s.avatar}
+          onPress={() => navigation?.navigate('AccountSettings')}
         >
-          <Ionicons
-            name="settings-outline"
-            size={18}
-            color={Colors.text.onGold}
-          />
+          <Ionicons name="person" size={18} color={Colors.text.title} />
         </TouchableOpacity>
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={s.list}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={onRefresh}
+            onRefresh={() => { setRefreshing(true); fetchDevices(); }}
             tintColor={Colors.primary.default}
           />
         }
       >
-        {devices.map((device) => {
-          const meta = TYPE_META[device.type] ?? TYPE_META.GENERIC;
-          const val = states[device.key];
-          const isOn = parseBool(val);
-          const busy = !!cmdLoading[device.key];
 
-          return (
-            <View
-              key={device.key}
-              style={[
-                s.card,
-                { borderLeftColor: isOn ? Colors.state.on : Colors.state.off },
-              ]}
+        {/* ── Filter chips ───────────────────────────── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.filterRow}
+        >
+          {FILTERS.map(f => (
+            <TouchableOpacity
+              key={f}
+              style={[s.chip, activeFilter === f && s.chipActive]}
+              onPress={() => setActiveFilter(f)}
             >
-              {/* Left: icon + name */}
-              <View style={s.cardLeft}>
-                <View
-                  style={[
-                    s.iconWrap,
-                    {
-                      backgroundColor: isOn
-                        ? Colors.primary.darker + '60'
-                        : Colors.surface.elevated + '40',
-                    },
-                  ]}
-                >
+              <Text style={[s.chipText, activeFilter === f && s.chipTextActive]}>{f}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* ── Room cards ─────────────────────────────── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.roomRow}
+        >
+          {ROOMS.map(room => (
+            <TouchableOpacity
+              key={room.id}
+              style={s.roomCard}
+              onPress={() =>
+                navigation.navigate('RoomSetting', {
+                  roomName: room.name,
+                  devices: devices.map(d => ({
+                    key:        d.feed_key ?? d.key,
+                    name:       d.name,
+                    type:       d.type,
+                    last_value: states[d.feed_key ?? d.key],
+                  })),
+                })
+              }
+              activeOpacity={0.8}
+            >
+              <Ionicons name={room.icon} size={34} color={Colors.text.title} />
+              <Text style={s.roomName}>{room.name}</Text>
+              <Text style={s.roomCount}>{room.count} devices</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* ── Device list ────────────────────────────── */}
+        <View style={s.deviceList}>
+          {filteredDevices.map((device, i) => {
+            const key    = device.feed_key ?? device.key;
+            const meta   = TYPE_META[device.type] ?? TYPE_META.GENERIC;
+            const val    = states[key];
+            const isOn   = parseBool(val);
+            const busy   = !!cmdLoading[key];
+            const isAuto = meta.isAuto;
+
+            const statusLabel = meta.isDoor
+              ? (isOn ? 'OPEN' : 'LOCKED')
+              : isAuto ? 'AUTO'
+              : isOn ? 'ON' : 'OFF';
+
+            const badgeColor = isAuto ? Colors.state.auto
+              : isOn           ? Colors.primary.default
+              :                  Colors.surface.elevated;
+
+            const badgeTextColor = isAuto ? Colors.state.auto
+              : isOn              ? Colors.primary.default
+              :                     Colors.text.caption;
+
+            return (
+              <View key={key} style={[s.deviceRow, i > 0 && s.deviceBorder]}>
+
+                {/* Icon box */}
+                <View style={[s.iconBox, {
+                  backgroundColor: isOn
+                    ? Colors.primary.darker + '55'
+                    : Colors.surface.elevated + '55',
+                }]}>
                   <Ionicons
                     name={meta.icon}
-                    size={20}
+                    size={22}
                     color={isOn ? Colors.primary.default : Colors.text.caption}
                   />
                 </View>
-                <View>
-                  <Text style={s.cardName}>{device.name ?? device.key}</Text>
-                  <Text style={s.cardSub}>
-                    {device.type} · {device.key}
-                  </Text>
+
+                {/* Name + room */}
+                <View style={s.deviceInfo}>
+                  <Text style={s.deviceName}>{device.name ?? key}</Text>
+                  <Text style={s.deviceRoom}>{DEVICE_ROOM[key] ?? 'Home'}</Text>
+                </View>
+
+                {/* Badge + control */}
+                <View style={s.deviceRight}>
+                  <View style={[s.badge, {
+                    backgroundColor: badgeColor + '22',
+                    borderColor:     badgeColor,
+                  }]}>
+                    <Text style={[s.badgeText, { color: badgeTextColor }]}>
+                      {statusLabel}
+                    </Text>
+                  </View>
+
+                  {busy ? (
+                    <ActivityIndicator size="small" color={Colors.primary.default} />
+                  ) : meta.isDoor ? (
+                    <Toggle
+                      value={!isOn}
+                      color={Colors.success}
+                      onPress={() => handleDoor(key, isOn ? 'CLOSE' : 'OPEN')}
+                    />
+                  ) : (
+                    <Toggle
+                      value={isAuto ? true : isOn}
+                      color={isAuto ? Colors.state.auto : Colors.success}
+                      onPress={() => !isAuto && handleToggle(key)}
+                    />
+                  )}
                 </View>
               </View>
+            );
+          })}
+        </View>
 
-              {/* Right: control */}
-              <View style={s.cardRight}>
-                {busy ? (
-                  <ActivityIndicator
-                    color={Colors.primary.default}
-                    size="small"
-                  />
-                ) : meta.isDoor ? (
-                  <View style={s.doorRow}>
-                    <TouchableOpacity
-                      style={[s.doorBtn, val === 'OPEN' && s.doorBtnOn]}
-                      onPress={() => handleDoor(device.key, 'OPEN')}
-                    >
-                      <Text
-                        style={[
-                          s.doorBtnText,
-                          val === 'OPEN' && { color: Colors.text.onGold },
-                        ]}
-                      >
-                        Open
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[s.doorBtn, val !== 'OPEN' && s.doorBtnOn]}
-                      onPress={() => handleDoor(device.key, 'CLOSE')}
-                    >
-                      <Text
-                        style={[
-                          s.doorBtnText,
-                          val !== 'OPEN' && { color: Colors.text.onGold },
-                        ]}
-                      >
-                        Close
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={[s.toggle, isOn && s.toggleOn]}
-                    onPress={() => handleToggle(device.key)}
-                    activeOpacity={0.8}
-                  >
-                    <View style={[s.thumb, isOn && s.thumbOn]} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          );
-        })}
-
-        <View style={{ height: Spacing.xxxl }} />
+        <View style={{ height: Spacing.xxxl + 20 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.surface.base },
+  safe:    { flex: 1, backgroundColor: Colors.surface.base },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'space-between',
     paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.lg,
-    backgroundColor: Colors.surface.overlay,
+    paddingVertical:   Spacing.lg,
   },
-  headerTitle: {
-    flex: 1,
-    fontSize: Typography.size.xl,
-    color: Colors.text.title,
-    fontWeight: Typography.weight.bold,
-  },
-  badge: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.success + '22',
-  },
-  badgeText: {
-    fontSize: Typography.size.xs,
-    color: Colors.success,
-    fontWeight: Typography.weight.semibold,
+  title: { color: Colors.text.title,   fontSize: 26, fontWeight: Typography.weight.bold },
+  date:  { color: Colors.text.caption, fontSize: Typography.size.sm, marginTop: 2 },
+  avatar: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: Colors.primary.brand,
+    alignItems: 'center', justifyContent: 'center',
   },
 
-  list: { padding: Spacing.xl, gap: Spacing.md },
+  filterRow: {
+    paddingHorizontal: Spacing.xl,
+    paddingBottom:     Spacing.lg,
+    gap:               Spacing.sm,
+  },
+  chip: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical:   Spacing.sm,
+    borderRadius:      Radius.full,
+    backgroundColor:   Colors.surface.card,
+  },
+  chipActive:     { backgroundColor: Colors.primary.default },
+  chipText:       { color: Colors.text.caption, fontSize: Typography.size.sm, fontWeight: Typography.weight.medium },
+  chipTextActive: { color: Colors.text.onGold },
 
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  roomRow: {
+    paddingHorizontal: Spacing.xl,
+    paddingBottom:     Spacing.lg,
+    gap:               Spacing.md,
+  },
+  roomCard: {
+    width:           130,
+    height:          130,
     backgroundColor: Colors.surface.card,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    borderLeftWidth: 4,
+    borderRadius:    Radius.xl,
+    padding:         Spacing.lg,
+    justifyContent:  'flex-end',
   },
-  cardLeft: {
-    flex: 1,
+  roomName:  { color: Colors.text.title,   fontSize: Typography.size.md, fontWeight: Typography.weight.bold, marginTop: Spacing.sm },
+  roomCount: { color: Colors.text.caption, fontSize: Typography.size.xs, marginTop: 2 },
+
+  deviceList: {
+    marginHorizontal: Spacing.xl,
+    backgroundColor:  Colors.surface.card,
+    borderRadius:     Radius.lg,
+    overflow:         'hidden',
+  },
+  deviceRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.lg,
+    alignItems:    'center',
+    padding:       Spacing.lg,
+    gap:           Spacing.lg,
   },
-  iconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
+  deviceBorder: { borderTopWidth: 0.5, borderTopColor: Colors.surface.elevated },
+  iconBox: {
+    width: 48, height: 48, borderRadius: Radius.md,
+    alignItems: 'center', justifyContent: 'center',
   },
-  cardName: {
-    fontSize: Typography.size.md,
-    color: Colors.text.title,
-    fontWeight: Typography.weight.medium,
+  deviceInfo: { flex: 1 },
+  deviceName: { color: Colors.text.title,   fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
+  deviceRoom: { color: Colors.text.caption, fontSize: Typography.size.xs, marginTop: 2 },
+  deviceRight: { alignItems: 'flex-end', gap: Spacing.xs },
+  badge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical:   2,
+    borderRadius:      Radius.full,
+    borderWidth:       1,
   },
-  cardSub: {
-    fontSize: Typography.size.xs,
-    color: Colors.text.caption,
-    marginTop: 2,
-  },
-  cardRight: { alignItems: 'flex-end', minWidth: 90 },
-
-  // Toggle switch
-  toggle: {
-    width: 48,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: Colors.state.off,
-    padding: 3,
-    justifyContent: 'center',
-  },
-  toggleOn: { backgroundColor: Colors.state.on },
-  thumb: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: Colors.text.title,
-    alignSelf: 'flex-start',
-  },
-  thumbOn: { alignSelf: 'flex-end' },
-
-  // Door buttons
-  doorRow: { flexDirection: 'row', gap: Spacing.xs },
-  doorBtn: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.surface.elevated,
-  },
-  doorBtnOn: {
-    backgroundColor: Colors.primary.default,
-    borderColor: Colors.primary.default,
-  },
-  doorBtnText: {
-    color: Colors.text.body,
-    fontSize: Typography.size.xs,
-    fontWeight: Typography.weight.medium,
-  },
-  roomBtn: {
-    marginLeft: Spacing.md,
-    width: 34,
-    height: 34,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.primary.default,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  badgeText: { fontSize: Typography.size.xs, fontWeight: Typography.weight.semibold },
 });

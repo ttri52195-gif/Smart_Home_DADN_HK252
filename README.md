@@ -14,6 +14,7 @@ Mobile frontend for the Smart House system, built with React Native and Expo. Co
 - [Running on Your Phone](#running-on-your-phone)
 - [API Configuration](#api-configuration)
 - [Architecture Notes](#architecture-notes)
+- [API Conflicts & Known Issues](#api-conflicts--known-issues)
 
 ---
 
@@ -143,9 +144,11 @@ npx expo install --fix
 ### Build and run (iOS)
 
 ```bash
-npx expo prebuild
-npx expo run:ios
+./node_modules/.bin/expo prebuild --clean
+npm run ios
 ```
+
+> **Do not use `npx expo ...`** — npx ignores the local SDK 52 install and tries to download the latest Expo version, causing a version conflict. Always use `npm run` or `./node_modules/.bin/expo` directly.
 
 ### Configure the API URL
 
@@ -153,13 +156,13 @@ Open `src/services/api.js` and set `API_BASE_URL` to match your environment:
 
 ```js
 // Physical phone (Expo Go) — use your computer's local IP
-export const API_BASE_URL = 'http://192.168.x.x:8000';
+export const API_BASE_URL = 'http://192.168.x.x:8001';
 
 // iOS Simulator
-export const API_BASE_URL = 'http://localhost:8000';
+export const API_BASE_URL = 'http://localhost:8001';
 
 // Android Emulator
-export const API_BASE_URL = 'http://10.0.2.2:8000';
+export const API_BASE_URL = 'http://10.0.2.2:8001';
 ```
 
 Find your local IP on macOS:
@@ -225,6 +228,46 @@ The JWT token is passed as `Authorization: Bearer <token>` on all authenticated 
 
 **Polling**: `HomeScreen` polls `GET /api/sensors` and `GET /api/devices` every 5 seconds to keep sensor readings and device states current. `ChartScreen` auto-refreshes every 30 seconds.
 
-**Chart data**: The FastAPI backend does not yet implement a history endpoint, so `ChartScreen` fetches feed history directly from Adafruit IO using `src/services/adafruitIO.js`. Once the backend exposes `/api/sensors/{id}/history`, this can be swapped in.
+**Chart data**: `ChartScreen` tries `POST /api/sensors/history` first (backend), normalises the `{ value, created_at }` shape to `{ value: number, time: Date }`, and falls back to Adafruit IO (`getFeedHistory`) if the backend returns an empty array or throws.
+
+**Alert data**: `AlertScreen` fetches `GET /api/alerts/list` (server-generated alerts) and `GET /api/sensors` (current sensor values) in parallel. Server alerts take priority; client-side threshold rules fill in for any sensor not covered by the server response.
 
 **No persistent storage**: The JWT token is in-memory only and is lost on app restart. For production, replace with `expo-secure-store`.
+
+---
+
+## API Conflicts & Known Issues
+
+Conflicts found between the Postman collection and the prior implementation, resolved as noted.
+
+### 1. `getDeviceState` — method mismatch
+- **Postman**: `GET /api/devices/{id}/get_state?auth_token={{token}}`
+- **Previous code**: `POST` with body `{ auth_token, state }`
+- **Fix**: Changed to `GET` with `queryParams: { auth_token: token }` in `api.js`.
+
+### 2. `register` — extra field
+- **Postman** body: `{ username, password }` only.
+- **App code** sends an extra `is_house_owner` boolean (used to differentiate house-owner accounts in the UI).
+- **Status**: Backend may ignore or 422 the extra field. Kept for UI purposes; backend should tolerate or explicitly support it.
+
+### 3. Chart history source
+- **Postman** defines `POST /api/sensors/history` with body `{ auth_token, feed_key, start_time, end_time }`.
+- **Previous code**: `ChartScreen` called Adafruit IO directly — backend endpoint was not implemented yet.
+- **Fix**: `ChartScreen` now tries the backend first and falls back to Adafruit IO.
+
+### 4. Alert detection moved server-side
+- **Postman** defines `GET /api/alerts/list` returning `[{ id, sensor_key, value, message, level, created_at }]`.
+- **Previous code**: Alert cards were derived entirely client-side from raw sensor values.
+- **Fix**: `AlertScreen` now fetches `listAlerts()` and merges with client-side threshold fallback for sensors not covered by the server.
+
+### 5. Stub / undocumented endpoints
+The following endpoints appear in the Postman collection but are not yet implemented in the backend (they return stubs or 404):
+- `GET /api/sensors/latest` — not called by the app; `GET /api/sensors` is used instead.
+- `POST /api/sensors/export` — not called; no export UI exists.
+- `GET /api/system/mode` — `getSystemMode()` is implemented in `api.js` but not yet wired to any screen.
+
+### 6. Assumed alert response shape
+The backend alert shape is **assumed** as `[{ id, sensor_key, value, message, level, created_at }]` based on the Postman mock. If the real backend returns a different shape (e.g. wrapped in `{ success, data }` or with different field names), `AlertScreen` will silently show no server alerts and fall back to client-side detection.
+
+### 7. Adafruit IO credentials are hardcoded
+`src/services/adafruitIO.js` contains a hardcoded AIO username and key. These must be rotated before shipping and should move to environment variables (`EXPO_PUBLIC_AIO_KEY`).

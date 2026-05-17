@@ -27,3 +27,6 @@ ios/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Others
+smarthouse.postman_collection.json
