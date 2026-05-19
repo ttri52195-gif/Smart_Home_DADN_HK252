@@ -1,6 +1,6 @@
 # Smart House — React Native App
 
-Mobile frontend for the Smart House system, built with React Native and Expo. Connects to the FastAPI backend (`code/smarthouse`) for authentication, device control, and sensor monitoring.
+Mobile frontend for the Smart House system, built with React Native and Expo. Connects to the FastAPI backend (`code/smarthouse`) for authentication, device control, sensor monitoring, alerts, and activity history.
 
 ---
 
@@ -15,6 +15,7 @@ Mobile frontend for the Smart House system, built with React Native and Expo. Co
 - [API Configuration](#api-configuration)
 - [Architecture Notes](#architecture-notes)
 - [API Conflicts & Known Issues](#api-conflicts--known-issues)
+- [Changelog](#changelog)
 
 ---
 
@@ -22,12 +23,11 @@ Mobile frontend for the Smart House system, built with React Native and Expo. Co
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | React Native 0.76.9 |
-| Runtime | Expo SDK 52 |
-| Navigation | React Navigation v6 (Bottom Tabs) |
+| Framework | React Native 0.76.2 |
+| Runtime | Expo SDK 54 |
+| Navigation | React Navigation v6 (Bottom Tabs + Stack) |
 | Auth state | React Context (in-memory JWT) |
 | Backend API | FastAPI (`code/smarthouse`) via fetch |
-| Chart data | Adafruit IO REST API (history only) |
 | Styling | StyleSheet.create — no external UI library |
 
 ---
@@ -47,13 +47,17 @@ smarthouse-app/
     │   └── AuthContext.js        # JWT auth state — signIn / signUp / signOut
     ├── services/
     │   ├── api.js                # Backend API client (all authenticated calls)
-    │   └── adafruitIO.js         # Adafruit IO client (feed history for charts)
+    │   └── adafruitIO.js         # Adafruit IO client (unused — kept for fallback reference)
     └── screens/
         ├── LoginScreen.js        # Login / register form
-        ├── HomeScreen.js         # Sensor overview + quick device controls
-        ├── DevicesScreen.js      # Full device list with toggle controls
-        ├── ChartScreen.js        # Historical sensor charts
-        └── AlertScreen.js        # Threshold monitoring and alert cards
+        ├── HomeScreen.js         # Sensor overview + quick device controls + recent activity
+        ├── DevicesScreen.js      # Full device list + activity history section
+        ├── ChartScreen.js        # Historical sensor charts (GET /api/sensor-data)
+        ├── AlertScreen.js        # Server-generated alerts with time/type filters
+        ├── SettingsScreen.js     # App settings
+        ├── AccountSettingsScreen.js
+        └── RoomSetting/
+            └── RoomSettingScreen.js
 ```
 
 ---
@@ -62,40 +66,47 @@ smarthouse-app/
 
 ### Login
 - Toggle between **Sign In** and **Register** modes
-- Register supports an optional "house owner" flag (owners can create schedules)
-- JWT token is stored in React Context after login
+- Register supports an optional "house owner" flag
+- JWT token stored in React Context after login
 
 ### Home
 - Greeting header with current date
-- **2×2 sensor grid**: Temperature, Humidity, Gas, Rain — live values polled every 5 s
-- **Quick controls**: Light (lb1), Motion detector (pir), RGB strip — on/off toggles
-- **Door control**: Open / Close buttons
-- Activity log of the last 8 device commands
+- **3-column sensor grid**: dynamic — renders all sensors returned by `GET /api/sensors`. Icons and colours are configured per `feed_key` in `SENSOR_META`; name, value, and unit come from the API at runtime. New sensors appear automatically.
+- **Quick Controls**: dynamic — renders all devices from `GET /api/devices`. Visual config is keyed by device `type` in `DEVICE_META`. No hardcoded device list.
+- **Recent Activity**: last 5 minutes of device state changes fetched from `GET /api/device-data` for each device in parallel. Updates every 10 seconds with the sensor/device poll.
+- Pull-to-refresh; polling stops when the screen loses focus (`useFocusEffect`).
 
 ### Devices
-- Full list of all devices fetched from `GET /api/devices`
-- 4px left border colour indicates state: gold = active, grey = inactive
-- Toggle switch for lights, motion, RGB; Open/Close buttons for door
+- Full device list from `GET /api/devices` with type-filter chips (All / Doors / Lights / Curtains / Climate)
+- Toggle switch for lights/RGB/dimmer; lock/unlock toggle for doors
+- **Device Activities** section below the list:
+  - Follows the active type filter (only shows feed_keys matching the selected category)
+  - Time range chips: 5 min (default) / 1 hour / 1 day — changes trigger a new `GET /api/device-data` fetch
 - Pull-to-refresh
 
 ### Charts
-- Tab selector: Temperature · Humidity · Light
-- Line chart of the last 30 readings (from Adafruit IO)
+- Sensor chips: dynamically generated from `GET /api/sensors` — same count and names as HomeScreen
+- Time range chips: **5 min** (default) / 1 hour / 1 day
+- Line chart rendered from `GET /api/sensor-data?feed_key=...&start_time=...&end_time=...`
 - Stats row: Current / Min / Max / Avg
-- Raw data table of the last 8 readings
-- Auto-refreshes every 30 seconds with a live countdown
+- Raw readings table (last 8 points)
+- Manual refresh button (tap the refresh icon in the header)
 
 ### Alerts
-- Current status cards for all 5 sensors with colour-coded level badges
-- Active alerts section with left-border alert cards (warning/danger)
-- Threshold reference table
+- Fetches `GET /api/alerts/list?since=<ISO>` using the selected time window
+- Time filter chips: 10 min / 1 hour (default) / 1 day
+- Type filter chips: All / Gas Leak / Motion / Door Forced
+- Per-card dismiss (local state; reloads on refresh)
 - Pull-to-refresh
+
+### Settings / Account Settings / Room Settings
+- Account settings navigable from the avatar button on Home and Devices screens
 
 ---
 
 ## Design System
 
-Tokens are in `src/theme/index.js`, derived from the `ux-ui/` design files.
+Tokens are in `src/theme/index.js`.
 
 ### Colour palette
 
@@ -115,10 +126,10 @@ Tokens are in `src/theme/index.js`, derived from the `ux-ui/` design files.
 
 ### Key design patterns
 
-- **Alert cards**: 4 px coloured left border + tinted background (from `smart_home_home_brainstorm_v2.html`)
-- **Device state**: gold border = ON, grey = OFF
-- **Toggle switch**: custom — gold track when ON, grey when OFF
-- **Section labels**: uppercase, letter-spaced, caption colour
+- **Dynamic rendering**: `SENSOR_META` and `DEVICE_META` hold only visual config (icon, colour). All data (name, value, unit, count) comes from the API at runtime — adding a new sensor or device to the backend requires no frontend code change.
+- **Chip filters**: `alignSelf: 'flex-start'` + `flexDirection: 'row'` on the horizontal ScrollView `contentContainerStyle` prevents chips from stretching to fill width.
+- **Scroll layout**: `<View style={{ flex: 1 }}>` wrapper around each main `<ScrollView>` is required for scroll to work correctly on SDK 54.
+- **Tab bar**: 80 px height on iOS, 64 px on Android, with `paddingBottom: 24` on iOS to clear the home indicator.
 
 ---
 
@@ -127,18 +138,15 @@ Tokens are in `src/theme/index.js`, derived from the `ux-ui/` design files.
 ### Prerequisites
 
 - Node.js 18+
-- Xcode 15.1+ (macOS — for iOS builds; Xcode 16 is **not** required)
+- Xcode 15+ (macOS — for iOS Simulator)
 - Backend running — see `code/smarthouse/README.md`
 
 ### Install dependencies
-
-> **Important:** This project requires `--legacy-peer-deps` due to React Native peer dependency conflicts. Plain `npm install` will silently skip core Expo packages.
 
 ```bash
 cd code/smarthouse-app
 rm -rf node_modules
 npm install --legacy-peer-deps
-npx expo install --fix
 ```
 
 ### Build and run (iOS)
@@ -148,14 +156,12 @@ npx expo install --fix
 npm run ios
 ```
 
-> **Do not use `npx expo ...`** — npx ignores the local SDK 52 install and tries to download the latest Expo version, causing a version conflict. Always use `npm run` or `./node_modules/.bin/expo` directly.
-
 ### Configure the API URL
 
-Open `src/services/api.js` and set `API_BASE_URL` to match your environment:
+Open `src/services/api.js` and set `API_BASE_URL`:
 
 ```js
-// Physical phone (Expo Go) — use your computer's local IP
+// Physical phone (Expo Go) — use your computer's LAN IP
 export const API_BASE_URL = 'http://192.168.x.x:8001';
 
 // iOS Simulator
@@ -165,10 +171,14 @@ export const API_BASE_URL = 'http://localhost:8001';
 export const API_BASE_URL = 'http://10.0.2.2:8001';
 ```
 
-Find your local IP on macOS:
+Find your LAN IP on macOS:
 ```bash
 ipconfig getifaddr en0
 ```
+
+### Dev mode
+
+Set `DEV_MODE = true` in `src/services/api.js` to skip the backend entirely. Every API call returns data from `src/services/mockData.js` instantly.
 
 ### Start the backend
 
@@ -186,51 +196,49 @@ cd code/smarthouse-app
 npx expo start
 ```
 
-A QR code appears in the terminal. Open **Expo Go** on your phone and scan it. The app loads over your local network — no build or USB required.
-
-> Both your phone and computer must be on the **same Wi-Fi network**.
-
-### Simulator / Emulator
-
-```bash
-npx expo start --ios      # requires Xcode
-npx expo start --android  # requires Android Studio
-```
+Scan the QR code with **Expo Go**. Both phone and computer must be on the same Wi-Fi network.
 
 ---
 
 ## API Configuration
 
-The app uses two data sources:
+All calls go to the FastAPI backend. Adafruit IO is no longer used for chart data.
 
-| Source | Used for | Auth |
-|--------|----------|------|
-| `code/smarthouse` FastAPI | Login, register, sensor values, device control, schedules | JWT Bearer token |
-| Adafruit IO REST API | Feed history (charts only) | `X-AIO-Key` header |
+### Authentication
 
-### Backend endpoints used
+The JWT token is passed as `Authorization: Bearer <token>` on all authenticated requests. Some endpoints (e.g. `getDeviceState`) also accept `auth_token` as a query param — both are sent where required.
 
-| Screen | Method | Endpoint |
-|--------|--------|----------|
-| Login | POST | `/api/auth/login` |
-| Register | POST | `/api/auth/register` |
-| Home / Alerts | GET | `/api/sensors` |
-| Home / Devices | GET | `/api/devices` |
-| Home / Devices | POST | `/api/devices/{id}/set_state` |
+### Backend endpoints
 
-The JWT token is passed as `Authorization: Bearer <token>` on all authenticated requests.
+| Screen | Method | Endpoint | Auth |
+|--------|--------|----------|------|
+| Login | POST | `/api/auth/login` | — |
+| Register | POST | `/api/auth/register` | — |
+| Home, Devices, Charts | GET | `/api/sensors` | — |
+| Home, Devices | GET | `/api/devices` | — |
+| Home, Devices | POST | `/api/devices/{id}/set_state` | Bearer |
+| Devices | GET | `/api/devices/{id}/get_state` | `auth_token` query |
+| Charts | GET | `/api/sensor-data` | Bearer |
+| Home, Devices | GET | `/api/device-data` | Bearer |
+| Alerts | GET | `/api/alerts/list` | — |
+| Schedules | GET/POST/PUT | `/api/schedules` | Bearer |
+| System | GET | `/api/system/mode` | Bearer |
 
 ---
 
 ## Architecture Notes
 
-**Auth flow**: `AuthContext` holds the JWT in component state. `App.js` renders `LoginScreen` when `token` is null, otherwise renders the tab navigator. Logging out clears the token and returns to the login screen.
+**Auth flow**: `AuthContext` holds the JWT in component state. `App.js` renders `LoginScreen` when `token` is null, otherwise renders the tab navigator.
 
-**Polling**: `HomeScreen` polls `GET /api/sensors` and `GET /api/devices` every 5 seconds to keep sensor readings and device states current. `ChartScreen` auto-refreshes every 30 seconds.
+**Polling**: `HomeScreen` polls `GET /api/sensors` and `GET /api/devices` every 10 seconds via `useFocusEffect` — polling starts when the tab gains focus and stops when it loses it. After each device list refresh, `GET /api/device-data` is fetched in parallel for all devices to populate the Recent Activity section.
 
-**Chart data**: `ChartScreen` tries `POST /api/sensors/history` first (backend), normalises the `{ value, created_at }` shape to `{ value: number, time: Date }`, and falls back to Adafruit IO (`getFeedHistory`) if the backend returns an empty array or throws.
+**Dynamic sensor/device rendering**: No screen hardcodes a list of sensors or devices. `SENSOR_META` / `DEVICE_META` provide icon + colour per `feed_key` / `type`; the API provides everything else. Unknown sensors/devices fall back to a generic icon.
 
-**Alert data**: `AlertScreen` fetches `GET /api/alerts/list` (server-generated alerts) and `GET /api/sensors` (current sensor values) in parallel. Server alerts take priority; client-side threshold rules fill in for any sensor not covered by the server response.
+**Chart data**: `ChartScreen` calls `GET /api/sensor-data?feed_key=...&start_time=...&end_time=...` with a Bearer token. The `start_time` and `end_time` are derived from the selected time range chip (5 min / 1 hour / 1 day). Response shape: `{ count, data: [{ timestamp, value }], feed_key }`.
+
+**Device activity**: Both `HomeScreen` (last 5 min, all devices) and `DevicesScreen` (configurable range, filtered by type) use `GET /api/device-data`. Calls are made in parallel via `Promise.allSettled` — one per device in scope — then merged and sorted by timestamp descending.
+
+**Alert data**: `AlertScreen` calls `GET /api/alerts/list?since=<ISO>` where `since` is computed from the selected time filter. The backend returns `{ alerts: [{ feed_key, type, title, msg, timestamp }] }`. Type filtering is client-side. Dismissed alerts are tracked in local state.
 
 **No persistent storage**: The JWT token is in-memory only and is lost on app restart. For production, replace with `expo-secure-store`.
 
@@ -238,36 +246,50 @@ The JWT token is passed as `Authorization: Bearer <token>` on all authenticated 
 
 ## API Conflicts & Known Issues
 
-Conflicts found between the Postman collection and the prior implementation, resolved as noted.
-
-### 1. `getDeviceState` — method mismatch
-- **Postman**: `GET /api/devices/{id}/get_state?auth_token={{token}}`
+### 1. `getDeviceState` — method mismatch (resolved)
+- **Postman**: `GET /api/devices/{id}/get_state?auth_token=...`
 - **Previous code**: `POST` with body `{ auth_token, state }`
-- **Fix**: Changed to `GET` with `queryParams: { auth_token: token }` in `api.js`.
+- **Fix**: Changed to `GET` with `queryParams: { auth_token: token }`.
 
 ### 2. `register` — extra field
 - **Postman** body: `{ username, password }` only.
-- **App code** sends an extra `is_house_owner` boolean (used to differentiate house-owner accounts in the UI).
-- **Status**: Backend may ignore or 422 the extra field. Kept for UI purposes; backend should tolerate or explicitly support it.
+- **App** sends `is_house_owner` boolean for UI differentiation.
+- **Status**: Backend may ignore or 422 the field. Kept for UI purposes.
 
-### 3. Chart history source
-- **Postman** defines `POST /api/sensors/history` with body `{ auth_token, feed_key, start_time, end_time }`.
-- **Previous code**: `ChartScreen` called Adafruit IO directly — backend endpoint was not implemented yet.
-- **Fix**: `ChartScreen` now tries the backend first and falls back to Adafruit IO.
+### 3. Chart history — endpoint replaced
+- **Previous code**: `ChartScreen` fetched Adafruit IO directly.
+- **Now**: Uses `GET /api/sensor-data` with Bearer token. Response envelope `{ count, data, feed_key }` is unwrapped; field `timestamp` is used (not `created_at`).
 
-### 4. Alert detection moved server-side
-- **Postman** defines `GET /api/alerts/list` returning `[{ id, sensor_key, value, message, level, created_at }]`.
-- **Previous code**: Alert cards were derived entirely client-side from raw sensor values.
-- **Fix**: `AlertScreen` now fetches `listAlerts()` and merges with client-side threshold fallback for sensors not covered by the server.
+### 4. Alert response shape (resolved)
+- **Actual backend**: `{ alerts: [{ feed_key, type, title, msg, timestamp }] }` — no `id` field.
+- **Fix**: Card dismiss key uses `${feed_key}-${timestamp}`. `listAlerts` unwraps `res?.alerts`.
 
-### 5. Stub / undocumented endpoints
-The following endpoints appear in the Postman collection but are not yet implemented in the backend (they return stubs or 404):
-- `GET /api/sensors/latest` — not called by the app; `GET /api/sensors` is used instead.
-- `POST /api/sensors/export` — not called; no export UI exists.
-- `GET /api/system/mode` — `getSystemMode()` is implemented in `api.js` but not yet wired to any screen.
+### 5. `getSensorData` / `getDeviceActivities` require auth (resolved)
+- Both endpoints return `401 Missing auth token` without credentials.
+- **Fix**: Bearer token passed via the `token` field in the `request()` helper for both calls.
 
-### 6. Assumed alert response shape
-The backend alert shape is **assumed** as `[{ id, sensor_key, value, message, level, created_at }]` based on the Postman mock. If the real backend returns a different shape (e.g. wrapped in `{ success, data }` or with different field names), `AlertScreen` will silently show no server alerts and fall back to client-side detection.
+### 6. Stub / undocumented endpoints
+- `GET /api/system/mode` — implemented in `api.js` but not wired to any screen.
+- `GET /api/users`, `GET /get-user-by-username` — implemented but only used by AccountSettings.
 
-### 7. Adafruit IO credentials are hardcoded
-`src/services/adafruitIO.js` contains a hardcoded AIO username and key. These must be rotated before shipping and should move to environment variables (`EXPO_PUBLIC_AIO_KEY`).
+### 7. Adafruit IO credentials
+- `src/services/adafruitIO.js` contains a hardcoded AIO key. The file is no longer called from any screen but should be rotated before shipping.
+
+---
+
+## Changelog
+
+### 2026-05-19
+- **ChartScreen**: replaced hardcoded 3-sensor list with dynamic sensor chips from `GET /api/sensors`; switched chart data source from Adafruit IO to `GET /api/sensor-data`; added 5 min / 1 hour / 1 day time range filter; removed auto-refresh countdown.
+- **HomeScreen**: replaced in-memory activity log with real device state history from `GET /api/device-data` (last 5 min, all devices, updates with 10 s poll).
+- **DevicesScreen**: added "Device Activities" section — follows active type filter, supports 5 min / 1 hour / 1 day time range.
+- **AlertScreen**: fixed chip layout (chips were expanding to ~50% screen width); added `flexGrow: 0` on the horizontal ScrollView to eliminate blank gap between filters and alert list.
+- **App.js**: tab bar height increased to 80 px (iOS) / 64 px (Android) with proper bottom padding to clear the iPhone home indicator.
+- **api.js**: added `getDeviceActivities(token, feedKey, startTime, endTime)` → `GET /api/device-data`; added `getSensorData(token, feedKey, startTime, endTime)` → `GET /api/sensor-data`; fixed `getSensorData` to pass Bearer token.
+
+### 2026-05-18
+- Downgraded from Expo SDK 55 to **SDK 54** (React Native 0.76.2) to fix scroll layout issues.
+- **AlertScreen**: full rewrite — fetches `GET /api/alerts/list?since=...`; time filter (10 min / 1 hour / 1 day); type filter chips (All / Gas Leak / Motion / Door Forced); fixed field names (`type`, `msg`, `timestamp`) to match real API shape.
+- **DevicesScreen**: removed hardcoded room cards and room labels; removed `isAuto` from `TYPE_META`; status derived from live device value.
+- **HomeScreen**: replaced hardcoded `SENSOR_STRIP` with dynamic 3-column grid from `SENSOR_META`; replaced hardcoded `QUICK_CARDS` with `DEVICE_META` driven by API device list; `useFocusEffect` polling (10 s, stops on tab blur); fixed sensor count label and active device count badge.
+- **api.js**: fixed `getDeviceState` from POST to GET; added `console.log('[API]', ...)` for response logging; `listAlerts` now unwraps `{ alerts: [...] }` envelope.

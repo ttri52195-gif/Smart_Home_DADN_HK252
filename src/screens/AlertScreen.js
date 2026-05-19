@@ -5,84 +5,38 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { listSensors, listAlerts } from '../services/api';
+import { listAlerts } from '../services/api';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 
-// Threshold rules per sensor key — ordered most-severe first
-const THRESHOLDS = {
-  temperature: [
-    {
-      level: 'danger',
-      title: 'Fire / Overheat detected',
-      body:  v => `Kitchen sensor: ${v}°C • Threshold exceeded at 60°C. Possible fire risk`,
-      action: 'Emergency',
-      check:  v => v >= 35,
-    },
-    {
-      level: 'warn',
-      title: 'Temperature Alert',
-      body:  v => `Living room: ${v}°C — exceeded your 30°C max threshold`,
-      action: 'Turn FAN ON',
-      check:  v => v >= 30,
-    },
-  ],
-  humidity: [
-    {
-      level: 'danger',
-      title: 'Humidity Critical',
-      body:  v => `Sensor: ${v}% — extremely high humidity detected`,
-      action: 'Emergency',
-      check:  v => v >= 90,
-    },
-    {
-      level: 'warn',
-      title: 'Humidity Alert',
-      body:  v => `Sensor: ${v}% — outside comfortable range`,
-      action: 'Adjust HVAC',
-      check:  v => v >= 80 || v <= 30,
-    },
-  ],
-  gas: [
-    {
-      level: 'danger',
-      title: 'Dangerous Gas Detected',
-      body:  v => `Gas sensor: ${v} — immediate ventilation required`,
-      action: 'Emergency',
-      check:  v => v > 800,
-    },
-    {
-      level: 'warn',
-      title: 'Gas Level Alert',
-      body:  v => `Gas sensor: ${v} — elevated levels detected`,
-      action: 'Ventilate',
-      check:  v => v > 500,
-    },
-  ],
-};
-
-// Always-visible informational cards (non-sensor)
-const STATIC_INFO = [
-  {
-    id:    'temp_bedroom',
-    level: 'info',
-    title: 'Temperature Alert',
-    body:  'Temperature in bedroom is below the set threshold. Consider adjusting the thermostat.',
-    time:  () => new Date(Date.now() - 60 * 60 * 1000),
-  },
-  {
-    id:    'away_mode',
-    level: 'info',
-    title: 'Away mode is ON',
-    body:  'Temperature in bedroom is below the set threshold. Consider adjusting the thermostat.',
-    time:  () => new Date(Date.now() - 60 * 60 * 1000),
-  },
+const TIME_OPTIONS = [
+  { label: '10 min', ms: 10 * 60 * 1000 },
+  { label: '1 hour', ms: 60 * 60 * 1000 },
+  { label: '1 day',  ms: 24 * 60 * 60 * 1000 },
 ];
+
+const TYPE_OPTIONS = [
+  { key: 'All',              label: 'All'         },
+  { key: 'GAS_LEAK',         label: 'Gas Leak'    },
+  { key: 'MOTION_DETECTED',  label: 'Motion'      },
+  { key: 'DOOR_FORCED_OPEN', label: 'Door Forced' },
+];
+
+const ALERT_META = {
+  GAS_LEAK:         { icon: 'flame-outline',     level: 'danger' },
+  MOTION_DETECTED:  { icon: 'aperture-outline',  level: 'warn'   },
+  DOOR_FORCED_OPEN: { icon: 'lock-open-outline', level: 'danger' },
+};
 
 const CARD_THEME = {
   danger: { bg: '#5C0A0A', border: '#8B0000' },
   warn:   { bg: '#3D1F00', border: '#7B3F00' },
   info:   { bg: '#0D2B1A', border: '#14532D' },
 };
+
+function formatAlertType(type) {
+  if (!type) return 'Alert';
+  return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
 
 function formatDate() {
   return new Date().toLocaleDateString('en-US', {
@@ -94,93 +48,41 @@ function formatAge(date) {
   if (!date) return '';
   const secs = Math.floor((Date.now() - date.getTime()) / 1000);
   if (secs < 60)   return 'Now';
-  if (secs < 3600) return `${Math.floor(secs / 60)} min`;
-  return `${Math.floor(secs / 3600)} hour`;
+  if (secs < 3600) return `${Math.floor(secs / 60)} min ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)} hr ago`;
+  return `${Math.floor(secs / 86400)} d ago`;
 }
 
 export default function AlertScreen() {
-  const [values,       setValues]       = useState({});
-  const [serverAlerts, setServerAlerts] = useState([]);
-  const [loading,      setLoading]      = useState(true);
-  const [refreshing,   setRefreshing]   = useState(false);
-  const [fetchedAt,    setFetchedAt]    = useState(null);
-  const [dismissed,    setDismissed]    = useState({});
+  const [alerts,     setAlerts]     = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [dismissed,  setDismissed]  = useState({});
+  const [timeFilter, setTimeFilter] = useState(TIME_OPTIONS[1]);
+  const [typeFilter, setTypeFilter] = useState('All');
 
-  const analyze = useCallback(async () => {
+  const fetchAlerts = useCallback(async () => {
     try {
-      const [sensorsRes, alertsRes] = await Promise.allSettled([
-        listSensors(),
-        listAlerts(),
-      ]);
-
-      if (sensorsRes.status === 'fulfilled') {
-        const vm = {};
-        (sensorsRes.value.sensors ?? []).forEach(s => {
-          vm[s.feed_key ?? s.key] = s.current_value ?? s.last_value ?? null;
-        });
-        setValues(vm);
-      } else {
-        console.warn('listSensors failed:', sensorsRes.reason?.message);
-      }
-
-      if (alertsRes.status === 'fulfilled') {
-        setServerAlerts(Array.isArray(alertsRes.value) ? alertsRes.value : []);
-      } else {
-        console.warn('listAlerts failed:', alertsRes.reason?.message);
-      }
-
-      setFetchedAt(new Date());
+      const since = new Date(Date.now() - timeFilter.ms).toISOString();
+      const res   = await listAlerts(since);
+      setAlerts(Array.isArray(res) ? res : []);
+    } catch (e) {
+      console.warn('listAlerts failed:', e.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [timeFilter]);
 
-  useEffect(() => { analyze(); }, [analyze]);
+  useEffect(() => {
+    setLoading(true);
+    fetchAlerts();
+  }, [fetchAlerts]);
 
-  // Backend alerts take priority; client-side thresholds fill gaps
-  const backendCards = serverAlerts.map(a => ({
-    id:     `srv-${a.id}`,
-    level:  a.level ?? 'warn',
-    title:  a.message ?? 'Alert',
-    body:   `${a.sensor_key}: ${a.value}`,
-    action: null,
-    time:   new Date(a.created_at),
-  }));
-
-  const coveredKeys = new Set(serverAlerts.map(a => a.sensor_key));
-  const fallbackCards = [];
-  Object.entries(values).forEach(([key, raw]) => {
-    if (coveredKeys.has(key)) return;
-    const rules = THRESHOLDS[key];
-    if (!rules) return;
-    const num = parseFloat(raw);
-    if (isNaN(num)) return;
-    const rule = rules.find(r => r.check(num));
-    if (rule) {
-      fallbackCards.push({
-        id:     key,
-        level:  rule.level,
-        title:  rule.title,
-        body:   rule.body(num.toFixed(1)),
-        action: rule.action,
-        time:   fetchedAt,
-      });
-    }
-  });
-
-  const dynamicCards = [...backendCards, ...fallbackCards].filter(c => !dismissed[c.id]);
-  const allCards = [...dynamicCards, ...STATIC_INFO.map(c => ({ ...c, time: c.time() }))];
-
-  if (loading) {
-    return (
-      <SafeAreaView style={s.safe}>
-        <View style={s.centered}>
-          <ActivityIndicator size="large" color={Colors.primary.default} />
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // Real fields: type, msg, title, timestamp, feed_key (no id, no level)
+  const visibleCards = alerts
+    .filter(a => typeFilter === 'All' || a.type === typeFilter)
+    .filter(a => !dismissed[`${a.feed_key}-${a.timestamp}`]);
 
   return (
     <SafeAreaView style={s.safe}>
@@ -196,71 +98,118 @@ export default function AlertScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* ── Time filter ────────────────────────────────── */}
+      <View style={s.filterRow}>
+        {TIME_OPTIONS.map(opt => (
+          <TouchableOpacity
+            key={opt.label}
+            style={[s.chip, timeFilter === opt && s.chipActiveTime]}
+            onPress={() => setTimeFilter(opt)}
+          >
+            <Text style={[s.chipText, timeFilter === opt && s.chipTextActive]}>
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* ── Type filter ────────────────────────────────── */}
       <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={s.list}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => { setRefreshing(true); analyze(); }}
-            tintColor={Colors.primary.default}
-          />
-        }
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ flexGrow: 0 }}
+        contentContainerStyle={s.typeRow}
       >
-        {allCards.length === 0 && (
-          <View style={s.emptyCard}>
-            <Ionicons name="checkmark-circle" size={44} color={Colors.success} />
-            <Text style={s.emptyText}>All systems normal</Text>
-          </View>
-        )}
+        {TYPE_OPTIONS.map(opt => (
+          <TouchableOpacity
+            key={opt.key}
+            style={[s.chip, typeFilter === opt.key && s.chipActiveType]}
+            onPress={() => setTypeFilter(opt.key)}
+          >
+            {opt.key !== 'All' && ALERT_META[opt.key] && (
+              <Ionicons
+                name={ALERT_META[opt.key].icon}
+                size={12}
+                color={typeFilter === opt.key ? Colors.text.onGold : Colors.text.caption}
+              />
+            )}
+            <Text style={[s.chipText, typeFilter === opt.key && s.chipTextActive]}>
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
-        {allCards.map(card => {
-          const theme = CARD_THEME[card.level] ?? CARD_THEME.info;
-          return (
-            <View
-              key={card.id}
-              style={[s.card, { backgroundColor: theme.bg, borderColor: theme.border }]}
-            >
-              {/* Title row */}
-              <View style={s.cardTop}>
-                <Text style={s.cardTitle}>{card.title}</Text>
-                <Text style={s.cardTime}>{formatAge(card.time)}</Text>
-              </View>
+      {/* ── Alert list ─────────────────────────────────── */}
+      <View style={{ flex: 1 }}>
+      {loading ? (
+        <View style={s.centered}>
+          <ActivityIndicator size="large" color={Colors.primary.default} />
+        </View>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={s.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); fetchAlerts(); }}
+              tintColor={Colors.primary.default}
+            />
+          }
+        >
+          {visibleCards.length === 0 && (
+            <View style={s.emptyCard}>
+              <Ionicons name="checkmark-circle" size={44} color={Colors.success} />
+              <Text style={s.emptyText}>No alerts in this period</Text>
+            </View>
+          )}
 
-              {/* Body */}
-              <Text style={s.cardBody}>{card.body}</Text>
+          {visibleCards.map(alert => {
+            const cardKey = `${alert.feed_key}-${alert.timestamp}`;
+            const meta    = ALERT_META[alert.type] ?? { icon: 'warning-outline', level: 'warn' };
+            const theme   = CARD_THEME[meta.level] ?? CARD_THEME.warn;
 
-              {/* Action buttons — only for danger / warn */}
-              {(card.level === 'danger' || card.level === 'warn') && (
+            return (
+              <View
+                key={cardKey}
+                style={[s.card, { backgroundColor: theme.bg, borderColor: theme.border }]}
+              >
+                {/* Title row */}
+                <View style={s.cardTop}>
+                  <Ionicons name={meta.icon} size={16} color={Colors.text.title} style={{ marginRight: Spacing.sm, marginTop: 2 }} />
+                  <Text style={s.cardTitle}>{formatAlertType(alert.type)}</Text>
+                  <Text style={s.cardTime}>{formatAge(new Date(alert.timestamp))}</Text>
+                </View>
+
+                {/* Body */}
+                {!!alert.msg && (
+                  <Text style={s.cardBody}>{alert.msg}</Text>
+                )}
+
+                {/* Dismiss */}
                 <View style={s.cardActions}>
-                  {card.action && (
-                    <TouchableOpacity
-                      style={[
-                        s.actionBtn,
-                        card.level === 'danger' ? s.actionDanger : s.actionWarn,
-                      ]}
-                    >
-                      <Text style={s.actionText}>{card.action}</Text>
-                    </TouchableOpacity>
-                  )}
                   <TouchableOpacity
                     style={s.dismissBtn}
-                    onPress={() => setDismissed(p => ({ ...p, [card.id]: true }))}
+                    onPress={() => setDismissed(p => ({ ...p, [cardKey]: true }))}
                   >
                     <Text style={s.dismissText}>Dismiss</Text>
                   </TouchableOpacity>
                 </View>
-              )}
-            </View>
-          );
-        })}
-      </ScrollView>
+              </View>
+            );
+          })}
+
+          <View style={{ height: 120 }} />
+        </ScrollView>
+      )}
+      </View>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  safe:    { flex: 1, backgroundColor: Colors.surface.base },
+  safe:     { flex: 1, backgroundColor: Colors.surface.base },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   header: {
@@ -270,17 +219,45 @@ const s = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingVertical:   Spacing.lg,
   },
-  title: { color: Colors.text.title,   fontSize: 26, fontWeight: Typography.weight.bold },
-  date:  { color: Colors.text.caption, fontSize: Typography.size.sm, marginTop: 2 },
+  title:  { color: Colors.text.title,   fontSize: 26, fontWeight: Typography.weight.bold },
+  date:   { color: Colors.text.caption, fontSize: Typography.size.sm, marginTop: 2 },
   avatar: {
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: Colors.primary.brand,
     alignItems: 'center', justifyContent: 'center',
   },
 
+  filterRow: {
+    flexDirection:     'row',
+    paddingHorizontal: Spacing.xl,
+    gap:               Spacing.sm,
+    marginBottom:      Spacing.sm,
+  },
+  typeRow: {
+    flexDirection:     'row',
+    paddingHorizontal: Spacing.xl,
+    gap:               Spacing.sm,
+    paddingBottom:     Spacing.lg,
+  },
+  chip: {
+    alignSelf:         'flex-start',
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               3,
+    paddingHorizontal: Spacing.md,
+    paddingVertical:   Spacing.xs,
+    borderRadius:      Radius.full,
+    backgroundColor:   Colors.surface.card,
+    borderWidth:       1,
+    borderColor:       Colors.surface.elevated,
+  },
+  chipActiveTime: { backgroundColor: Colors.surface.elevated, borderColor: Colors.text.caption },
+  chipActiveType: { backgroundColor: Colors.primary.default,  borderColor: Colors.primary.default },
+  chipText:       { color: Colors.text.caption, fontSize: Typography.size.xs, fontWeight: Typography.weight.medium },
+  chipTextActive: { color: Colors.text.onGold },
+
   list: {
     paddingHorizontal: Spacing.xl,
-    paddingBottom:     Spacing.xxxl + 20,
     gap:               Spacing.lg,
     paddingTop:        Spacing.sm,
   },
@@ -291,10 +268,9 @@ const s = StyleSheet.create({
     padding:      Spacing.xl,
   },
   cardTop: {
-    flexDirection:  'row',
-    justifyContent: 'space-between',
-    alignItems:     'flex-start',
-    marginBottom:   Spacing.sm,
+    flexDirection: 'row',
+    alignItems:    'flex-start',
+    marginBottom:  Spacing.sm,
   },
   cardTitle: {
     flex:       1,
@@ -306,39 +282,30 @@ const s = StyleSheet.create({
     color:      Colors.text.caption,
     fontSize:   Typography.size.xs,
     marginLeft: Spacing.md,
+    marginTop:  2,
   },
   cardBody: {
     color:      Colors.text.body,
     fontSize:   Typography.size.sm,
     lineHeight: 18,
+    marginBottom: Spacing.sm,
   },
-
   cardActions: {
     flexDirection: 'row',
-    gap:           Spacing.md,
-    marginTop:     Spacing.lg,
-    flexWrap:      'wrap',
+    marginTop:     Spacing.md,
   },
-  actionBtn: {
-    paddingHorizontal: Spacing.xl,
-    paddingVertical:   Spacing.sm,
-    borderRadius:      Radius.full,
-  },
-  actionDanger: { backgroundColor: '#E57373' },
-  actionWarn:   { backgroundColor: Colors.primary.default },
-  actionText:   { color: Colors.text.onGold, fontSize: Typography.size.sm, fontWeight: Typography.weight.bold },
-
   dismissBtn: {
-    paddingHorizontal: Spacing.xl,
-    paddingVertical:   Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical:   Spacing.xs,
     borderRadius:      Radius.full,
-    backgroundColor:   '#6B0000',
+    borderWidth:       1,
+    borderColor:       Colors.surface.elevated,
   },
-  dismissText: { color: Colors.text.title, fontSize: Typography.size.sm, fontWeight: Typography.weight.bold },
+  dismissText: { color: Colors.text.caption, fontSize: Typography.size.xs, fontWeight: Typography.weight.medium },
 
   emptyCard: {
     alignItems: 'center',
-    padding:    Spacing.xxl,
+    paddingVertical: Spacing.xxl,
     gap:        Spacing.lg,
   },
   emptyText: { color: Colors.text.body, fontSize: Typography.size.md },

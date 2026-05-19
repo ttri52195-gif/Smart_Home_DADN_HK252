@@ -3,65 +3,37 @@ import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   ActivityIndicator, RefreshControl, Dimensions,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
-import { listSensors, listDevices, setDeviceState } from '../services/api';
+import { listSensors, listDevices, setDeviceState, getDeviceActivities } from '../services/api';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const CARD_W = (SCREEN_W - Spacing.xl * 2 - Spacing.md) / 2;
 
-const SENSOR_STRIP = [
-  { key: 'temperature', label: 'Temp',     unit: '°C', icon: 'thermometer-outline', color: Colors.data.temperature },
-  { key: 'humidity',    label: 'Humidity', unit: '%',  icon: 'water-outline',       color: Colors.data.humidity    },
-  { key: 'themis',      label: 'Lux',      unit: '',   icon: 'sunny-outline',       color: Colors.data.light       },
-];
+const SENSOR_COLS     = 3;
+const SENSOR_TILE_W   = (SCREEN_W - Spacing.xl * 2 - Spacing.md * (SENSOR_COLS - 1)) / SENSOR_COLS;
 
-const QUICK_CARDS = [
-  {
-    key:         'lb1',
-    label:       'Lights',
-    room:        'Living room',
-    icon:        'bulb-outline',
-    iconActive:  'bulb',
-    activeColor: Colors.primary.default,
-    borderColor: 'rgba(228,181,24,0.55)',
-    toggleColor: Colors.success,
-  },
-  {
-    key:         'door',
-    label:       'Front Door Lock',
-    room:        'Garden',
-    icon:        'lock-closed-outline',
-    iconActive:  'lock-closed',
-    isDoor:      true,
-    activeColor: Colors.success,
-    borderColor: 'rgba(39,174,96,0.45)',
-    toggleColor: Colors.success,
-  },
-  {
-    key:         'pir',
-    label:       'Fan',
-    room:        'Living room',
-    icon:        'aperture-outline',
-    iconActive:  'aperture',
-    isAuto:      true,
-    activeColor: Colors.state.auto,
-    borderColor: 'rgba(139,92,246,0.55)',
-    toggleColor: Colors.state.auto,
-  },
-  {
-    key:         'rgb',
-    label:       'Curtains',
-    room:        'Living room',
-    icon:        'reorder-three-outline',
-    iconActive:  'reorder-three',
-    activeColor: Colors.success,
-    borderColor: 'rgba(39,174,96,0.3)',
-    toggleColor: Colors.success,
-  },
-];
+// Visual config only — icon + color per feed_key.
+// name and unit come from the API response at runtime.
+const SENSOR_META = {
+  temperature: { icon: 'thermometer-outline', color: Colors.data.temperature },
+  humidity:    { icon: 'water-outline',       color: Colors.data.humidity    },
+  rain:        { icon: 'rainy-outline',       color: Colors.data.light       },
+  gas:         { icon: 'flame-outline',       color: Colors.error            },
+  themis:      { icon: 'sunny-outline',       color: Colors.data.light       },
+};
+
+// Visual config per device type — name comes from API at runtime.
+const DEVICE_META = {
+  LIGHT:  { icon: 'bulb-outline',          iconActive: 'bulb',          activeColor: Colors.primary.default, borderColor: 'rgba(228,181,24,0.55)', toggleColor: Colors.success       },
+  DOOR:   { icon: 'lock-open-outline',     iconActive: 'lock-closed',   activeColor: Colors.success,         borderColor: 'rgba(39,174,96,0.45)',  toggleColor: Colors.success,  isDoor: true },
+  MOTION: { icon: 'aperture-outline',      iconActive: 'aperture',      activeColor: Colors.state.auto,      borderColor: 'rgba(139,92,246,0.55)', toggleColor: Colors.state.auto    },
+  RGB:    { icon: 'color-palette-outline', iconActive: 'color-palette', activeColor: Colors.primary.default, borderColor: 'rgba(228,181,24,0.55)', toggleColor: Colors.success       },
+  DIMMER: { icon: 'sunny-outline',         iconActive: 'sunny',         activeColor: Colors.primary.default, borderColor: 'rgba(228,181,24,0.55)', toggleColor: Colors.success       },
+};
 
 function parseBool(val) {
   const v = String(val ?? '').toUpperCase();
@@ -101,6 +73,51 @@ function sensorStatus(key, raw) {
   return { text: 'OK', color: Colors.success };
 }
 
+function isDeviceActive(type, value) {
+  if (type === 'DOOR') return !parseBool(value);             // CLOSE (locked) = active
+  if (type === 'RGB')  return parseFloat(value) > 0 || parseBool(value);
+  return parseBool(value);
+}
+
+function deviceStatusLabel(type, value) {
+  if (type === 'DOOR') return parseBool(value) ? 'OPEN' : 'LOCKED';
+  if (type === 'RGB')  return (parseFloat(value) > 0 || parseBool(value)) ? 'ON' : 'OFF';
+  return parseBool(value) ? 'ON' : 'OFF';
+}
+
+function chunkSensors(arr, size) {
+  const rows = [];
+  for (let i = 0; i < arr.length; i += size) rows.push(arr.slice(i, i + size));
+  return rows;
+}
+
+function toApiTime(date) {
+  return date.toISOString().slice(0, 19);
+}
+
+function formatAge(date) {
+  if (!date || isNaN(date)) return '';
+  const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (secs < 60)   return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  return `${Math.floor(secs / 3600)}h ago`;
+}
+
+function actIcon(type, value) {
+  const v = String(value ?? '').toUpperCase();
+  if (type === 'DOOR')   return v === 'OPEN' ? 'lock-open-outline' : 'lock-closed-outline';
+  if (type === 'LIGHT' || type === 'DIMMER') return v === 'ON' ? 'bulb' : 'bulb-outline';
+  if (type === 'RGB')    return 'color-palette-outline';
+  if (type === 'MOTION') return 'aperture-outline';
+  return 'radio-button-on-outline';
+}
+
+function actColor(type, value) {
+  const v = String(value ?? '').toUpperCase();
+  if (type === 'DOOR') return v === 'OPEN' ? Colors.warning : Colors.success;
+  return (v === 'ON' || v === 'OPEN') ? Colors.success : Colors.text.caption;
+}
+
 function Toggle({ value, color = Colors.success, onPress, disabled }) {
   return (
     <TouchableOpacity
@@ -117,29 +134,30 @@ function Toggle({ value, color = Colors.success, onPress, disabled }) {
 export default function HomeScreen({ navigation }) {
   const { token, user } = useAuth();
 
+  const [sensorList, setSensorList] = useState([]);
   const [sensors,    setSensors]    = useState({});
+  const [deviceList, setDeviceList] = useState([]);
   const [devices,    setDevices]    = useState({});
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [cmdLoading, setCmdLoading] = useState({});
-  const [logs,       setLogs]       = useState([]);
+  const [cmdLoading,  setCmdLoading]  = useState({});
+  const [activities,  setActivities]  = useState([]);
 
   const pollRef = useRef(null);
   const avatarLetter = (user?.username ?? 'U')[0].toUpperCase();
 
-  function addLog(msg, type = 'info') {
-    const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setLogs(prev => [{ ts, msg, type }, ...prev].slice(0, 6));
-  }
-
   const fetchAll = useCallback(async () => {
     try {
       const [sRes, dRes] = await Promise.all([listSensors(), listDevices()]);
+      const list = sRes.sensors ?? [];
+      setSensorList(list);
       const sm = {};
-      (sRes.sensors ?? []).forEach(s => { sm[s.feed_key] = s.current_value ?? null; });
+      list.forEach(s => { sm[s.feed_key] = s.current_value ?? null; });
       setSensors(sm);
+      const dList = dRes.devices ?? [];
+      setDeviceList(dList);
       const dm = {};
-      (dRes.devices ?? []).forEach(d => { dm[d.feed_key ?? d.key] = d.value ?? d.last_value ?? null; });
+      dList.forEach(d => { dm[d.feed_key ?? d.key] = d.value ?? d.last_value ?? null; });
       setDevices(dm);
     } catch (e) {
       console.warn('Poll error:', e.message);
@@ -149,11 +167,36 @@ export default function HomeScreen({ navigation }) {
     }
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchAll();
+      pollRef.current = setInterval(fetchAll, 10000);
+      return () => clearInterval(pollRef.current);
+    }, [fetchAll])
+  );
+
+  // Fetch device activity for last 5 min whenever device list refreshes
   useEffect(() => {
-    fetchAll();
-    pollRef.current = setInterval(fetchAll, 5000);
-    return () => clearInterval(pollRef.current);
-  }, [fetchAll]);
+    if (!token || deviceList.length === 0) return;
+    const end   = new Date();
+    const start = new Date(end.getTime() - 5 * 60 * 1000);
+    Promise.allSettled(
+      deviceList.map(d => getDeviceActivities(token, d.feed_key, toApiTime(start), toApiTime(end)))
+    ).then(results => {
+      const merged = [];
+      results.forEach((res, i) => {
+        if (res.status !== 'fulfilled') return;
+        const dev  = deviceList[i];
+        const rows = Array.isArray(res.value) ? res.value : (res.value?.data ?? []);
+        rows.forEach(pt => {
+          const t = new Date(pt.timestamp ?? pt.created_at);
+          if (!isNaN(t)) merged.push({ name: dev.name, type: dev.type, value: pt.value, time: t });
+        });
+      });
+      merged.sort((a, b) => b.time - a.time);
+      setActivities(merged.slice(0, 10));
+    }).catch(() => {});
+  }, [deviceList, token]);
 
   async function handleToggle(key) {
     const next = parseBool(devices[key]) ? 'OFF' : 'ON';
@@ -161,29 +204,28 @@ export default function HomeScreen({ navigation }) {
     try {
       await setDeviceState(key, next, token);
       setDevices(p => ({ ...p, [key]: next }));
-      const label = QUICK_CARDS.find(c => c.key === key)?.label ?? key;
-      addLog(`${label} turned ${next}`, next === 'ON' ? 'ok' : 'info');
     } catch (e) {
-      addLog('Command failed', 'warn');
+      console.warn(e.message);
     } finally {
       setCmdLoading(p => ({ ...p, [key]: false }));
     }
   }
 
-  async function handleDoor(next) {
-    setCmdLoading(p => ({ ...p, door: true }));
+  async function handleDoor(key, next) {
+    setCmdLoading(p => ({ ...p, [key]: true }));
     try {
-      await setDeviceState('door', next, token);
-      setDevices(p => ({ ...p, door: next }));
-      addLog(`Door ${next === 'OPEN' ? 'unlocked' : 'locked'}`, next === 'OPEN' ? 'warn' : 'ok');
+      await setDeviceState(key, next, token);
+      setDevices(p => ({ ...p, [key]: next }));
     } catch (e) {
-      addLog('Door command failed', 'warn');
+      console.warn(e.message);
     } finally {
-      setCmdLoading(p => ({ ...p, door: false }));
+      setCmdLoading(p => ({ ...p, [key]: false }));
     }
   }
 
-  const activeCount = QUICK_CARDS.filter(c => parseBool(devices[c.key])).length;
+  const activeCount = deviceList.filter(d =>
+    isDeviceActive(d.type, devices[d.feed_key] ?? d.value)
+  ).length;
 
   if (loading) {
     return (
@@ -213,9 +255,10 @@ export default function HomeScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
+      <View style={{ flex: 1 }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: Spacing.xxxl + 20 }}
+        contentContainerStyle={{ paddingBottom: 120 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -226,83 +269,74 @@ export default function HomeScreen({ navigation }) {
       >
 
         {/* ── Sensor strip ───────────────────────────── */}
-        <Text style={s.activeLabel}>{activeCount} device{activeCount !== 1 ? 's' : ''} active</Text>
+        <Text style={s.activeLabel}>{sensorList.length} sensor{sensorList.length !== 1 ? 's' : ''}</Text>
         <View style={s.envStrip}>
-          {SENSOR_STRIP.map(({ key, label, unit, icon, color }) => {
-            const raw    = sensors[key];
-            const num    = parseFloat(raw);
-            const display = raw != null && !isNaN(num) ? `${Math.round(num)}${unit}` : '—';
-            const status = sensorStatus(key, raw);
-            return (
-              <View key={key} style={s.envTile}>
-                <Ionicons name={icon} size={20} color={color} />
-                <Text style={[s.envVal, { color }]}>{display}</Text>
-                <Text style={s.envLabel}>{label}</Text>
-                {status && <Text style={[s.envStatus, { color: status.color }]}>{status.text}</Text>}
-              </View>
-            );
-          })}
+          {chunkSensors(sensorList, SENSOR_COLS).map((row, ri) => (
+            <View key={ri} style={[s.envRow, row.length < SENSOR_COLS && s.envRowCenter]}>
+              {row.map(sensor => {
+                const meta   = SENSOR_META[sensor.feed_key] ?? { icon: 'analytics-outline', color: Colors.text.caption };
+                const num    = parseFloat(sensor.current_value);
+                const unit   = sensor.unit === 'raw' ? '' : sensor.unit;
+                const status = sensorStatus(sensor.feed_key, sensor.current_value);
+                return (
+                  <View key={sensor.feed_key} style={s.envTile}>
+                    <Ionicons name={meta.icon} size={20} color={meta.color} />
+                    <Text style={[s.envVal, { color: meta.color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                      {!isNaN(num) ? `${Math.round(num)}${unit}` : '—'}
+                    </Text>
+                    <Text style={s.envLabel}>{sensor.name}</Text>
+                    {status && <Text style={[s.envStatus, { color: status.color }]}>{status.text}</Text>}
+                  </View>
+                );
+              })}
+            </View>
+          ))}
         </View>
 
         {/* ── Quick Control ──────────────────────────── */}
-        <Text style={s.sectionTitle}>QUICK CONTROL</Text>
+        <View style={s.sectionHeader}>
+          <Text style={s.sectionTitle}>QUICK CONTROL</Text>
+          <Text style={s.sectionBadge}>{activeCount} active</Text>
+        </View>
         <View style={s.grid}>
-          {QUICK_CARDS.map(card => {
-            const doorIsOpen = card.isDoor ? parseBool(devices['door']) : false;
-            const isOn       = card.isDoor ? false : parseBool(devices[card.key]);
-            const isActive   = card.isDoor ? !doorIsOpen : (card.isAuto ? true : isOn);
-            const busy       = !!cmdLoading[card.key];
-
-            const statusLabel = card.isDoor
-              ? (doorIsOpen ? 'OPEN' : 'LOCKED')
-              : card.isAuto ? 'AUTO'
-              : isOn ? 'ON' : 'OFF';
+          {deviceList.map(device => {
+            const meta        = DEVICE_META[device.type] ?? { icon: 'hardware-chip-outline', iconActive: 'hardware-chip', activeColor: Colors.primary.default, borderColor: 'rgba(228,181,24,0.3)', toggleColor: Colors.success };
+            const currentVal  = devices[device.feed_key] ?? device.value;
+            const isActive    = isDeviceActive(device.type, currentVal);
+            const statusLabel = deviceStatusLabel(device.type, currentVal);
+            const busy        = !!cmdLoading[device.feed_key];
+            const onPress     = () => meta.isDoor
+              ? handleDoor(device.feed_key, parseBool(currentVal) ? 'CLOSE' : 'OPEN')
+              : handleToggle(device.feed_key);
 
             return (
               <TouchableOpacity
-                key={card.key}
-                style={[s.qaCard, { borderColor: isActive ? card.borderColor : 'transparent' }]}
-                onPress={() => card.isDoor
-                  ? handleDoor(doorIsOpen ? 'CLOSE' : 'OPEN')
-                  : handleToggle(card.key)
-                }
+                key={device.feed_key}
+                style={[s.qaCard, { borderColor: isActive ? meta.borderColor : 'transparent' }]}
+                onPress={onPress}
                 disabled={busy}
                 activeOpacity={0.85}
               >
-                {isActive && (
-                  <View style={[s.qaTopBar, {
-                    backgroundColor: card.isDoor ? Colors.success
-                      : card.isAuto ? Colors.state.auto
-                      : Colors.primary.default,
-                  }]} />
-                )}
+                {isActive && <View style={[s.qaTopBar, { backgroundColor: meta.activeColor }]} />}
 
                 <Ionicons
-                  name={isActive ? card.iconActive : card.icon}
+                  name={isActive ? meta.iconActive : meta.icon}
                   size={28}
-                  color={isActive ? card.activeColor : Colors.text.caption}
+                  color={isActive ? meta.activeColor : Colors.text.caption}
                 />
-                <Text style={s.qaName}>{card.label}</Text>
-                <Text style={s.qaSub}>{card.room}</Text>
+                <Text style={s.qaName}>{device.name}</Text>
 
                 <View style={s.qaFill} />
 
                 <View style={s.qaBottom}>
                   {busy ? (
-                    <ActivityIndicator size="small" color={card.activeColor} />
+                    <ActivityIndicator size="small" color={meta.activeColor} />
                   ) : (
                     <>
-                      <Text style={[s.qaStatus, { color: isActive ? card.activeColor : Colors.text.caption }]}>
+                      <Text style={[s.qaStatus, { color: isActive ? meta.activeColor : Colors.text.caption }]}>
                         {statusLabel}
                       </Text>
-                      <Toggle
-                        value={card.isDoor ? !doorIsOpen : (card.isAuto ? true : isOn)}
-                        color={card.toggleColor}
-                        onPress={() => card.isDoor
-                          ? handleDoor(doorIsOpen ? 'CLOSE' : 'OPEN')
-                          : handleToggle(card.key)
-                        }
-                      />
+                      <Toggle value={isActive} color={meta.toggleColor} onPress={onPress} />
                     </>
                   )}
                 </View>
@@ -314,33 +348,26 @@ export default function HomeScreen({ navigation }) {
         {/* ── Recent Activity ─────────────────────────── */}
         <View style={s.actHeader}>
           <Text style={s.sectionTitle}>RECENT ACTIVITY</Text>
-          <Ionicons name="time-outline" size={16} color={Colors.text.caption} />
+          <Text style={s.sectionBadge}>last 5 min</Text>
         </View>
         <View style={s.actList}>
-          {logs.length === 0 ? (
+          {activities.length === 0 ? (
             <View style={s.actItem}>
               <Text style={s.actText}>No recent activity</Text>
             </View>
           ) : (
-            logs.map((log, i) => {
-              const clr = log.type === 'ok'   ? Colors.success
-                        : log.type === 'warn' ? Colors.warning
-                        :                       Colors.info;
-              const ico = log.type === 'ok'   ? 'checkmark-circle-outline'
-                        : log.type === 'warn' ? 'warning-outline'
-                        :                       'information-circle-outline';
-              return (
-                <View key={i} style={[s.actItem, i > 0 && s.actBorder]}>
-                  <Ionicons name={ico} size={16} color={clr} style={{ flexShrink: 0 }} />
-                  <Text style={s.actText} numberOfLines={1}>{log.msg}</Text>
-                  <Text style={s.actTime}>{log.ts}</Text>
-                </View>
-              );
-            })
+            activities.map((act, i) => (
+              <View key={i} style={[s.actItem, i > 0 && s.actBorder]}>
+                <Ionicons name={actIcon(act.type, act.value)} size={16} color={actColor(act.type, act.value)} style={{ flexShrink: 0 }} />
+                <Text style={s.actText} numberOfLines={1}>{act.name} → {act.value}</Text>
+                <Text style={s.actTime}>{formatAge(act.time)}</Text>
+              </View>
+            ))
           )}
         </View>
 
       </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -387,31 +414,42 @@ const s = StyleSheet.create({
   },
 
   envStrip: {
-    flexDirection:    'row',
-    gap:              Spacing.md,
     marginHorizontal: Spacing.xl,
     marginBottom:     Spacing.xl,
+    gap:              Spacing.md,
   },
+  envRow:       { flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.md },
+  envRowCenter: { justifyContent: 'center' },
   envTile: {
-    flex:            1,
+    width:           SENSOR_TILE_W,
     backgroundColor: Colors.surface.card,
     borderRadius:    Radius.lg,
     padding:         Spacing.lg,
     alignItems:      'center',
     gap:             4,
   },
-  envVal:    { fontSize: 22, fontWeight: Typography.weight.bold, lineHeight: 28 },
-  envLabel:  { fontSize: Typography.size.xs, color: Colors.text.caption },
+  envVal:    { fontSize: 20, fontWeight: Typography.weight.bold, lineHeight: 26, width: '100%', textAlign: 'center' },
+  envLabel:  { fontSize: Typography.size.xs, color: Colors.text.caption, textAlign: 'center' },
   envStatus: { fontSize: Typography.size.xs, fontWeight: Typography.weight.bold },
 
-  sectionTitle: {
-    color:             Colors.text.caption,
-    fontSize:          Typography.size.xs,
-    fontWeight:        Typography.weight.bold,
-    letterSpacing:     1.5,
-    textTransform:     'uppercase',
+  sectionHeader: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'space-between',
     paddingHorizontal: Spacing.xl,
     marginBottom:      Spacing.md,
+  },
+  sectionBadge: {
+    fontSize:         Typography.size.xs,
+    color:            Colors.primary.default,
+    fontWeight:       Typography.weight.semibold,
+  },
+  sectionTitle: {
+    color:         Colors.text.caption,
+    fontSize:      Typography.size.xs,
+    fontWeight:    Typography.weight.bold,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
   },
 
   grid: {

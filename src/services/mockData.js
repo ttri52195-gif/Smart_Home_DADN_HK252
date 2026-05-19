@@ -46,25 +46,29 @@ export const MOCK_DEVICES = {
   count: 5,
 };
 
-// Assumed shape from GET /api/alerts/list:
-// [{ id, sensor_key, value, message, level, created_at }]
-// level: 'danger' | 'warn' | 'info'
+// Real shape from GET /api/alerts/list → { alerts: [...] }
+// Fields: feed_key, type, title, msg, timestamp
 export const MOCK_ALERTS = [
   {
-    id:         1,
-    sensor_key: 'temperature',
-    value:      31.2,
-    message:    'Temperature Alert',
-    level:      'warn',
-    created_at: new Date(Date.now() - 2  * 60 * 1000).toISOString(),
+    feed_key:  'gas',
+    type:      'GAS_LEAK',
+    title:     'Alert from gas',
+    msg:       'Gas concentration is high (3500.0 compared to 800.0).',
+    timestamp: new Date(Date.now() - 2  * 60 * 1000).toISOString(),
   },
   {
-    id:         2,
-    sensor_key: 'gas',
-    value:      620,
-    message:    'Gas Level Alert',
-    level:      'warn',
-    created_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    feed_key:  'pir',
+    type:      'MOTION_DETECTED',
+    title:     'Alert from pir',
+    msg:       'Motion detected in living room.',
+    timestamp: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+  },
+  {
+    feed_key:  'door',
+    type:      'DOOR_FORCED_OPEN',
+    title:     'Alert from door',
+    msg:       'Door is open (value=OPEN).',
+    timestamp: new Date(Date.now() - 55 * 60 * 1000).toISOString(),
   },
 ];
 

@@ -1,25 +1,36 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   ActivityIndicator, Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { getSensorHistory } from '../services/api';
-import { getFeedHistory } from '../services/adafruitIO';
+import { useAuth } from '../context/AuthContext';
+import { listSensors, getSensorData } from '../services/api';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const CHART_W = SCREEN_W - Spacing.xl * 2;
 const CHART_H = 160;
 
-const FEEDS = [
-  { key: 'temperature', label: 'Temperature', unit: '°C', color: Colors.data.temperature, icon: 'thermometer-outline' },
-  { key: 'humidity',    label: 'Humidity',    unit: '%',  color: Colors.data.humidity,    icon: 'water-outline'       },
-  { key: 'themis',      label: 'Light',       unit: '%',  color: Colors.data.light,       icon: 'sunny-outline'       },
+const SENSOR_META = {
+  temperature: { icon: 'thermometer-outline', color: Colors.data.temperature, unit: '°C' },
+  humidity:    { icon: 'water-outline',       color: Colors.data.humidity,    unit: '%'  },
+  rain:        { icon: 'rainy-outline',       color: Colors.data.light,       unit: ''   },
+  gas:         { icon: 'flame-outline',       color: Colors.error,            unit: ''   },
+  themis:      { icon: 'sunny-outline',       color: Colors.data.light,       unit: '%'  },
+};
+const DEFAULT_META = { icon: 'analytics-outline', color: Colors.text.body, unit: '' };
+
+const TIME_RANGES = [
+  { label: '5 min',  ms: 5  * 60 * 1000 },
+  { label: '1 hour', ms: 60 * 60 * 1000 },
+  { label: '1 day',  ms: 24 * 60 * 60 * 1000 },
 ];
 
-const REFRESH_INTERVAL = 30; // seconds
+function toApiTime(date) {
+  return date.toISOString().slice(0, 19);
+}
 
 // ── Minimal line chart (pure RN, no SVG library) ─────────────────
 function LineChart({ data, color }) {
@@ -132,119 +143,131 @@ function formatDate() {
 
 // ── Screen ────────────────────────────────────────────────────────
 export default function ChartScreen() {
-  const [selected,    setSelected]    = useState(FEEDS[0].key);
-  const [history,     setHistory]     = useState({});
-  const [loading,     setLoading]     = useState(true);
-  const [countdown,   setCountdown]   = useState(REFRESH_INTERVAL);
-  const countdownRef = useRef(null);
-
-  const feed = FEEDS.find(f => f.key === selected);
-
-  // Try backend POST /api/sensors/history first; fall back to Adafruit IO.
-  // Backend response assumed: [{ value, created_at }]
-  // AIO response shape (from adafruitIO.js): [{ value, time }]
-  const fetchHistory = useCallback(async () => {
-    setLoading(true);
-    try {
-      const end   = new Date().toISOString();
-      const start = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(); // last 2 h
-      let data = await getSensorHistory(null, selected, start, end);
-
-      if (Array.isArray(data) && data.length > 0) {
-        // Normalise backend shape → { value: number, time: Date }
-        data = data.map(d => ({
-          value: parseFloat(d.value),
-          time:  new Date(d.created_at ?? d.time),
-        })).filter(d => !isNaN(d.value));
-      } else {
-        // Fallback: fetch from Adafruit IO
-        data = await getFeedHistory(selected, 30);
-      }
-
-      setHistory(prev => ({ ...prev, [selected]: data }));
-    } catch (e) {
-      console.warn('Backend history failed, falling back to AIO:', e.message);
-      try {
-        const data = await getFeedHistory(selected, 30);
-        setHistory(prev => ({ ...prev, [selected]: data }));
-      } catch (aioErr) {
-        console.warn('AIO fallback also failed:', aioErr.message);
-      }
-    } finally {
-      setLoading(false);
-      setCountdown(REFRESH_INTERVAL);
-    }
-  }, [selected]);
+  const { token } = useAuth();
+  const [sensors,   setSensors]   = useState([]);
+  const [selected,  setSelected]  = useState(null);
+  const [timeRange, setTimeRange] = useState(TIME_RANGES[0]);
+  const [data,      setData]      = useState([]);
+  const [loading,   setLoading]   = useState(false);
 
   useEffect(() => {
-    fetchHistory();
-    countdownRef.current = setInterval(() => {
-      setCountdown(c => {
-        if (c <= 1) { fetchHistory(); return REFRESH_INTERVAL; }
-        return c - 1;
-      });
-    }, 1000);
-    return () => clearInterval(countdownRef.current);
-  }, [fetchHistory]);
+    listSensors()
+      .then(res => {
+        const list = res.sensors ?? [];
+        setSensors(list);
+        if (list.length > 0 && !selected) setSelected(list[0].feed_key);
+      })
+      .catch(e => console.warn('listSensors failed:', e.message));
+  }, []);
 
-  const data = history[selected] ?? [];
+  const fetchData = useCallback(async () => {
+    if (!selected) return;
+    setLoading(true);
+    try {
+      const end   = new Date();
+      const start = new Date(end.getTime() - timeRange.ms);
+      const res   = await getSensorData(token, selected, toApiTime(start), toApiTime(end));
+      const rows = Array.isArray(res) ? res : (res?.data ?? []);
+      const normalized = rows
+        .map(d => ({ value: parseFloat(d.value), time: new Date(d.timestamp ?? d.created_at ?? d.time) }))
+        .filter(d => !isNaN(d.value) && !isNaN(d.time));
+      setData(normalized);
+    } catch (e) {
+      console.warn('getSensorData failed:', e.message);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [token, selected, timeRange]);
 
-  // Statistics
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const meta   = SENSOR_META[selected] ?? DEFAULT_META;
+  const sensor = sensors.find(s => s.feed_key === selected);
+
   const values = data.map(d => d.value).filter(v => !isNaN(v));
-  const stats = values.length
-    ? {
-        current: values[values.length - 1].toFixed(1),
-        min:     Math.min(...values).toFixed(1),
-        max:     Math.max(...values).toFixed(1),
-        avg:     (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1),
-      }
-    : null;
+  const stats  = values.length ? {
+    current: values[values.length - 1].toFixed(1),
+    min:     Math.min(...values).toFixed(1),
+    max:     Math.max(...values).toFixed(1),
+    avg:     (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1),
+  } : null;
 
   return (
     <SafeAreaView style={s.safe}>
-      {/* Header */}
+
+      {/* ── Header ─────────────────────────────────────── */}
       <View style={s.header}>
         <View>
           <Text style={s.headerTitle}>Charts</Text>
           <Text style={s.headerDate}>{formatDate()}</Text>
         </View>
-        <View style={s.headerRight}>
-          <TouchableOpacity onPress={fetchHistory} style={s.refreshBtn}>
-            <Text style={s.refreshText}>↻ {countdown}s</Text>
-          </TouchableOpacity>
-          <View style={s.avatar}>
-            <Ionicons name="person" size={18} color={Colors.text.title} />
-          </View>
-        </View>
+        <TouchableOpacity onPress={fetchData} style={s.refreshBtn}>
+          <Ionicons name="refresh-outline" size={20} color={Colors.primary.default} />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Feed selector */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabs}>
-          {FEEDS.map(f => (
+      {/* ── Sensor chips ───────────────────────────────── */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ flexGrow: 0 }}
+        contentContainerStyle={s.chipRow}
+      >
+        {sensors.map(sensor => {
+          const m   = SENSOR_META[sensor.feed_key] ?? DEFAULT_META;
+          const active = selected === sensor.feed_key;
+          return (
             <TouchableOpacity
-              key={f.key}
-              style={[s.tab, selected === f.key && s.tabActive]}
-              onPress={() => setSelected(f.key)}
-              activeOpacity={0.8}
+              key={sensor.feed_key}
+              style={[s.chip, active && s.chipActiveSensor]}
+              onPress={() => setSelected(sensor.feed_key)}
             >
-              <Ionicons name={f.icon} size={16} color={selected === f.key ? Colors.text.onGold : Colors.text.caption} />
-              <Text style={[s.tabLabel, selected === f.key && { color: Colors.text.onGold }]}>{f.label}</Text>
+              <Ionicons
+                name={m.icon}
+                size={14}
+                color={active ? Colors.text.onGold : Colors.text.caption}
+              />
+              <Text style={[s.chipText, active && s.chipTextActive]}>
+                {sensor.name ?? sensor.feed_key}
+              </Text>
             </TouchableOpacity>
-          ))}
-        </ScrollView>
+          );
+        })}
+      </ScrollView>
+
+      {/* ── Time range chips ───────────────────────────── */}
+      <View style={s.timeRow}>
+        {TIME_RANGES.map(range => {
+          const active = timeRange === range;
+          return (
+            <TouchableOpacity
+              key={range.label}
+              style={[s.chip, active && s.chipActiveTime]}
+              onPress={() => setTimeRange(range)}
+            >
+              <Text style={[s.chipText, active && s.chipTextActive]}>{range.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* ── Content ────────────────────────────────────── */}
+      <ScrollView showsVerticalScrollIndicator={false}>
 
         {/* Stats row */}
         {stats && (
           <View style={s.statsRow}>
             {[
-              { label: 'Current', value: `${stats.current}${feed.unit}` },
-              { label: 'Min',     value: `${stats.min}${feed.unit}` },
-              { label: 'Max',     value: `${stats.max}${feed.unit}` },
-              { label: 'Avg',     value: `${stats.avg}${feed.unit}` },
+              { label: 'Current', value: `${stats.current}${meta.unit}` },
+              { label: 'Min',     value: `${stats.min}${meta.unit}`     },
+              { label: 'Max',     value: `${stats.max}${meta.unit}`     },
+              { label: 'Avg',     value: `${stats.avg}${meta.unit}`     },
             ].map(stat => (
               <View key={stat.label} style={s.statCard}>
-                <Text style={[s.statValue, { color: feed.color }]}>{stat.value}</Text>
+                <Text style={[s.statValue, { color: meta.color }]}>{stat.value}</Text>
                 <Text style={s.statLabel}>{stat.label}</Text>
               </View>
             ))}
@@ -253,12 +276,15 @@ export default function ChartScreen() {
 
         {/* Chart */}
         <View style={s.chartCard}>
-          <Text style={s.chartTitle}>{feed.label} — last {data.length} readings</Text>
+          <Text style={s.chartTitle}>
+            {sensor?.name ?? selected} — last {timeRange.label}
+            {data.length > 0 ? ` (${data.length} pts)` : ''}
+          </Text>
           {loading
             ? <View style={{ height: CHART_H + 30, alignItems: 'center', justifyContent: 'center' }}>
-                <ActivityIndicator color={feed.color} />
+                <ActivityIndicator color={meta.color} />
               </View>
-            : <LineChart data={data} color={feed.color} />
+            : <LineChart data={data} color={meta.color} />
           }
         </View>
 
@@ -268,7 +294,9 @@ export default function ChartScreen() {
             <Text style={s.tableTitle}>Recent readings</Text>
             {data.slice(-8).reverse().map((pt, i) => (
               <View key={i} style={[s.tableRow, i > 0 && s.tableRowBorder]}>
-                <Text style={[s.tableVal, { color: feed.color }]}>{pt.value.toFixed(2)}{feed.unit}</Text>
+                <Text style={[s.tableVal, { color: meta.color }]}>
+                  {pt.value.toFixed(2)}{meta.unit}
+                </Text>
                 <Text style={s.tableTime}>
                   {pt.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 </Text>
@@ -295,29 +323,40 @@ const s = StyleSheet.create({
   },
   headerTitle: { fontSize: 26, color: Colors.text.title, fontWeight: Typography.weight.bold },
   headerDate:  { color: Colors.text.caption, fontSize: Typography.size.sm, marginTop: 2 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  refreshBtn:  { paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, borderRadius: Radius.full, backgroundColor: Colors.surface.elevated },
-  refreshText: { color: Colors.primary.default, fontSize: Typography.size.sm, fontWeight: Typography.weight.semibold },
-  avatar: {
+  refreshBtn: {
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: Colors.primary.brand,
     alignItems: 'center', justifyContent: 'center',
   },
 
-  tabs: { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg, gap: Spacing.md },
-  tab: {
-    flexDirection:    'row',
-    alignItems:       'center',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical:   Spacing.sm,
+  chipRow: {
+    flexDirection:     'row',
+    paddingHorizontal: Spacing.xl,
+    paddingBottom:     Spacing.md,
+    gap:               Spacing.sm,
+  },
+  timeRow: {
+    flexDirection:     'row',
+    paddingHorizontal: Spacing.xl,
+    gap:               Spacing.sm,
+    marginBottom:      Spacing.md,
+  },
+  chip: {
+    alignSelf:         'flex-start',
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               4,
+    paddingHorizontal: Spacing.md,
+    paddingVertical:   Spacing.xs,
     borderRadius:      Radius.full,
     backgroundColor:   Colors.surface.card,
     borderWidth:       1,
     borderColor:       Colors.surface.elevated,
-    gap:               Spacing.sm,
   },
-  tabActive:  { backgroundColor: Colors.primary.default, borderColor: Colors.primary.default },
-  tabLabel:   { fontSize: Typography.size.sm, color: Colors.text.body, fontWeight: Typography.weight.medium },
+  chipActiveSensor: { backgroundColor: Colors.primary.default, borderColor: Colors.primary.default },
+  chipActiveTime:   { backgroundColor: Colors.surface.elevated, borderColor: Colors.text.caption },
+  chipText:         { color: Colors.text.caption, fontSize: Typography.size.xs, fontWeight: Typography.weight.medium },
+  chipTextActive:   { color: Colors.text.onGold },
 
   statsRow: {
     flexDirection:    'row',
@@ -358,20 +397,20 @@ const s = StyleSheet.create({
     marginBottom:     Spacing.lg,
   },
   tableTitle: {
-    fontSize:        Typography.size.xs,
-    color:           Colors.text.caption,
-    fontWeight:      Typography.weight.semibold,
-    letterSpacing:   1,
-    textTransform:   'uppercase',
+    fontSize:          Typography.size.xs,
+    color:             Colors.text.caption,
+    fontWeight:        Typography.weight.semibold,
+    letterSpacing:     1,
+    textTransform:     'uppercase',
     paddingHorizontal: Spacing.lg,
     paddingVertical:   Spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: Colors.surface.elevated,
   },
   tableRow: {
-    flexDirection:    'row',
-    justifyContent:   'space-between',
-    alignItems:       'center',
+    flexDirection:     'row',
+    justifyContent:    'space-between',
+    alignItems:        'center',
     paddingHorizontal: Spacing.lg,
     paddingVertical:   Spacing.sm,
   },

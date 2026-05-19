@@ -6,15 +6,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
-import { listDevices, setDeviceState } from '../services/api';
+import { listDevices, setDeviceState, getDeviceActivities } from '../services/api';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 
 const FILTERS = ['All', 'Doors', 'Lights', 'Curtains', 'Climate'];
 
-const ROOMS = [
-  { id: 'bedroom', name: 'Master Bedroom', icon: 'bed-outline',        count: 4 },
-  { id: 'living',  name: 'Living Room',    icon: 'tv-outline',          count: 5 },
-  { id: 'kitchen', name: 'Kitchen',        icon: 'restaurant-outline',  count: 1 },
+const ACTIVITY_RANGES = [
+  { label: '5 min',  ms: 5  * 60 * 1000 },
+  { label: '1 hour', ms: 60 * 60 * 1000 },
+  { label: '1 day',  ms: 24 * 60 * 60 * 1000 },
 ];
 
 const TYPE_FILTER = {
@@ -27,21 +27,40 @@ const TYPE_FILTER = {
 };
 
 const TYPE_META = {
-  DOOR:    { icon: 'lock-closed-outline', isDoor: true  },
-  LIGHT:   { icon: 'bulb-outline',        isToggle: true },
-  DIMMER:  { icon: 'sunny-outline',       isToggle: true },
-  MOTION:  { icon: 'aperture-outline',    isToggle: true, isAuto: true },
-  RGB:     { icon: 'reorder-three-outline', isToggle: true, isAuto: true },
-  GENERIC: { icon: 'flash-outline',       isToggle: true },
+  DOOR:    { icon: 'lock-closed-outline',   isDoor: true  },
+  LIGHT:   { icon: 'bulb-outline'                         },
+  DIMMER:  { icon: 'sunny-outline'                        },
+  MOTION:  { icon: 'aperture-outline'                     },
+  RGB:     { icon: 'color-palette-outline', isRGB: true   },
+  GENERIC: { icon: 'flash-outline'                        },
 };
 
-const DEVICE_ROOM = {
-  lb1:        'Master Bedroom',
-  door:       'Garden',
-  pir:        'Living Room',
-  rgb:        'Living Room',
-  'light-pwm': 'Living Room',
-};
+function toApiTime(date) {
+  return date.toISOString().slice(0, 19);
+}
+
+function formatAge(date) {
+  if (!date || isNaN(date)) return '';
+  const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (secs < 60)   return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  return `${Math.floor(secs / 3600)}h ago`;
+}
+
+function actIcon(type, value) {
+  const v = String(value ?? '').toUpperCase();
+  if (type === 'DOOR')   return v === 'OPEN' ? 'lock-open-outline' : 'lock-closed-outline';
+  if (type === 'LIGHT' || type === 'DIMMER') return v === 'ON' ? 'bulb' : 'bulb-outline';
+  if (type === 'RGB')    return 'color-palette-outline';
+  if (type === 'MOTION') return 'aperture-outline';
+  return 'radio-button-on-outline';
+}
+
+function actColor(type, value) {
+  const v = String(value ?? '').toUpperCase();
+  if (type === 'DOOR') return v === 'OPEN' ? Colors.warning : Colors.success;
+  return (v === 'ON' || v === 'OPEN') ? Colors.success : Colors.text.caption;
+}
 
 function parseBool(val) {
   const v = String(val ?? '').toUpperCase();
@@ -84,6 +103,9 @@ export default function DevicesScreen({ navigation }) {
   const [refreshing,   setRefreshing]   = useState(false);
   const [cmdLoading,   setCmdLoading]   = useState({});
   const [activeFilter, setActiveFilter] = useState('All');
+  const [actTimeRange, setActTimeRange] = useState(ACTIVITY_RANGES[0]);
+  const [activities,   setActivities]   = useState([]);
+  const [actLoading,   setActLoading]   = useState(false);
 
   const fetchDevices = useCallback(async () => {
     try {
@@ -102,6 +124,40 @@ export default function DevicesScreen({ navigation }) {
   }, []);
 
   useEffect(() => { fetchDevices(); }, [fetchDevices]);
+
+  const fetchActivities = useCallback(async () => {
+    if (!token || devices.length === 0) return;
+    setActLoading(true);
+    const end      = new Date();
+    const start    = new Date(end.getTime() - actTimeRange.ms);
+    const feedKeys = activeFilter === 'All'
+      ? devices.map(d => d.feed_key ?? d.key)
+      : devices.filter(d => TYPE_FILTER[d.type] === activeFilter).map(d => d.feed_key ?? d.key);
+    try {
+      const results = await Promise.allSettled(
+        feedKeys.map(key => getDeviceActivities(token, key, toApiTime(start), toApiTime(end)))
+      );
+      const merged = [];
+      results.forEach((res, i) => {
+        if (res.status !== 'fulfilled') return;
+        const key    = feedKeys[i];
+        const device = devices.find(d => (d.feed_key ?? d.key) === key);
+        const rows   = Array.isArray(res.value) ? res.value : (res.value?.data ?? []);
+        rows.forEach(pt => {
+          const t = new Date(pt.timestamp ?? pt.created_at);
+          if (!isNaN(t)) merged.push({ name: device?.name ?? key, type: device?.type, value: pt.value, time: t });
+        });
+      });
+      merged.sort((a, b) => b.time - a.time);
+      setActivities(merged);
+    } catch (e) {
+      console.warn('fetchActivities failed:', e.message);
+    } finally {
+      setActLoading(false);
+    }
+  }, [token, devices, activeFilter, actTimeRange]);
+
+  useEffect(() => { fetchActivities(); }, [fetchActivities]);
 
   async function handleToggle(key) {
     const next = parseBool(states[key]) ? 'OFF' : 'ON';
@@ -187,79 +243,42 @@ export default function DevicesScreen({ navigation }) {
           ))}
         </ScrollView>
 
-        {/* ── Room cards ─────────────────────────────── */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.roomRow}
-        >
-          {ROOMS.map(room => (
-            <TouchableOpacity
-              key={room.id}
-              style={s.roomCard}
-              onPress={() =>
-                navigation.navigate('RoomSetting', {
-                  roomName: room.name,
-                  devices: devices.map(d => ({
-                    key:        d.feed_key ?? d.key,
-                    name:       d.name,
-                    type:       d.type,
-                    last_value: states[d.feed_key ?? d.key],
-                  })),
-                })
-              }
-              activeOpacity={0.8}
-            >
-              <Ionicons name={room.icon} size={34} color={Colors.text.title} />
-              <Text style={s.roomName}>{room.name}</Text>
-              <Text style={s.roomCount}>{room.count} devices</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
         {/* ── Device list ────────────────────────────── */}
         <View style={s.deviceList}>
           {filteredDevices.map((device, i) => {
-            const key    = device.feed_key ?? device.key;
-            const meta   = TYPE_META[device.type] ?? TYPE_META.GENERIC;
-            const val    = states[key];
-            const isOn   = parseBool(val);
-            const busy   = !!cmdLoading[key];
-            const isAuto = meta.isAuto;
+            const key  = device.feed_key ?? device.key;
+            const meta = TYPE_META[device.type] ?? TYPE_META.GENERIC;
+            const val  = states[key];
+            const busy = !!cmdLoading[key];
 
-            const statusLabel = meta.isDoor
-              ? (isOn ? 'OPEN' : 'LOCKED')
-              : isAuto ? 'AUTO'
-              : isOn ? 'ON' : 'OFF';
+            const isActive = meta.isDoor ? !parseBool(val)
+              : meta.isRGB  ? parseFloat(val) > 0 || parseBool(val)
+              : parseBool(val);
 
-            const badgeColor = isAuto ? Colors.state.auto
-              : isOn           ? Colors.primary.default
-              :                  Colors.surface.elevated;
+            const statusLabel = meta.isDoor ? (parseBool(val) ? 'OPEN' : 'LOCKED')
+              : meta.isRGB     ? (isActive ? 'ON' : 'OFF')
+              : isActive       ? 'ON' : 'OFF';
 
-            const badgeTextColor = isAuto ? Colors.state.auto
-              : isOn              ? Colors.primary.default
-              :                     Colors.text.caption;
+            const badgeColor     = isActive ? Colors.primary.default : Colors.surface.elevated;
+            const badgeTextColor = isActive ? Colors.primary.default : Colors.text.caption;
 
             return (
               <View key={key} style={[s.deviceRow, i > 0 && s.deviceBorder]}>
 
                 {/* Icon box */}
                 <View style={[s.iconBox, {
-                  backgroundColor: isOn
-                    ? Colors.primary.darker + '55'
-                    : Colors.surface.elevated + '55',
+                  backgroundColor: isActive ? Colors.primary.darker + '55' : Colors.surface.elevated + '55',
                 }]}>
                   <Ionicons
                     name={meta.icon}
                     size={22}
-                    color={isOn ? Colors.primary.default : Colors.text.caption}
+                    color={isActive ? Colors.primary.default : Colors.text.caption}
                   />
                 </View>
 
-                {/* Name + room */}
+                {/* Name */}
                 <View style={s.deviceInfo}>
                   <Text style={s.deviceName}>{device.name ?? key}</Text>
-                  <Text style={s.deviceRoom}>{DEVICE_ROOM[key] ?? 'Home'}</Text>
                 </View>
 
                 {/* Badge + control */}
@@ -277,21 +296,57 @@ export default function DevicesScreen({ navigation }) {
                     <ActivityIndicator size="small" color={Colors.primary.default} />
                   ) : meta.isDoor ? (
                     <Toggle
-                      value={!isOn}
+                      value={isActive}
                       color={Colors.success}
-                      onPress={() => handleDoor(key, isOn ? 'CLOSE' : 'OPEN')}
+                      onPress={() => handleDoor(key, parseBool(val) ? 'CLOSE' : 'OPEN')}
                     />
                   ) : (
                     <Toggle
-                      value={isAuto ? true : isOn}
-                      color={isAuto ? Colors.state.auto : Colors.success}
-                      onPress={() => !isAuto && handleToggle(key)}
+                      value={isActive}
+                      color={Colors.success}
+                      onPress={() => handleToggle(key)}
                     />
                   )}
                 </View>
               </View>
             );
           })}
+        </View>
+
+        {/* ── Device Activities ──────────────────────── */}
+        <View style={s.actSectionHeader}>
+          <Text style={s.actSectionTitle}>DEVICE ACTIVITIES</Text>
+        </View>
+        <View style={s.actTimeRow}>
+          {ACTIVITY_RANGES.map(range => (
+            <TouchableOpacity
+              key={range.label}
+              style={[s.actChip, actTimeRange === range && s.actChipActive]}
+              onPress={() => setActTimeRange(range)}
+            >
+              <Text style={[s.actChipText, actTimeRange === range && s.actChipTextActive]}>
+                {range.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={s.actList}>
+          {actLoading ? (
+            <ActivityIndicator color={Colors.primary.default} style={{ padding: Spacing.xl }} />
+          ) : activities.length === 0 ? (
+            <View style={s.actEmptyRow}>
+              <Text style={s.actEmptyText}>No activity in this period</Text>
+            </View>
+          ) : (
+            activities.map((act, i) => (
+              <View key={i} style={[s.actItem, i > 0 && s.actBorder]}>
+                <Ionicons name={actIcon(act.type, act.value)} size={16} color={actColor(act.type, act.value)} />
+                <Text style={s.actName} numberOfLines={1}>{act.name}</Text>
+                <Text style={[s.actValue, { color: actColor(act.type, act.value) }]}>{act.value}</Text>
+                <Text style={s.actTime}>{formatAge(act.time)}</Text>
+              </View>
+            ))
+          )}
         </View>
 
         <View style={{ height: Spacing.xxxl + 20 }} />
@@ -378,4 +433,47 @@ const s = StyleSheet.create({
     borderWidth:       1,
   },
   badgeText: { fontSize: Typography.size.xs, fontWeight: Typography.weight.semibold },
+
+  actSectionHeader: {
+    paddingHorizontal: Spacing.xl,
+    marginTop:         Spacing.xl,
+    marginBottom:      Spacing.md,
+  },
+  actSectionTitle: {
+    color:         Colors.text.caption,
+    fontSize:      Typography.size.xs,
+    fontWeight:    Typography.weight.bold,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+  actTimeRow: {
+    flexDirection:     'row',
+    paddingHorizontal: Spacing.xl,
+    gap:               Spacing.sm,
+    marginBottom:      Spacing.md,
+  },
+  actChip: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical:   Spacing.xs,
+    borderRadius:      Radius.full,
+    backgroundColor:   Colors.surface.card,
+    borderWidth:       1,
+    borderColor:       Colors.surface.elevated,
+  },
+  actChipActive:     { backgroundColor: Colors.surface.elevated, borderColor: Colors.text.caption },
+  actChipText:       { color: Colors.text.caption, fontSize: Typography.size.xs, fontWeight: Typography.weight.medium },
+  actChipTextActive: { color: Colors.text.title },
+  actList: {
+    marginHorizontal: Spacing.xl,
+    backgroundColor:  Colors.surface.card,
+    borderRadius:     Radius.lg,
+    overflow:         'hidden',
+  },
+  actItem:     { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.lg },
+  actBorder:   { borderTopWidth: 0.5, borderTopColor: Colors.surface.elevated },
+  actName:     { flex: 1, color: Colors.text.body, fontSize: Typography.size.sm },
+  actValue:    { fontSize: Typography.size.xs, fontWeight: Typography.weight.semibold },
+  actTime:     { color: Colors.text.caption, fontSize: Typography.size.xs },
+  actEmptyRow: { padding: Spacing.xl, alignItems: 'center' },
+  actEmptyText:{ color: Colors.text.caption, fontSize: Typography.size.sm },
 });

@@ -53,12 +53,13 @@ function MainTabs() {
           backgroundColor: Colors.surface.overlay,
           borderTopColor:  Colors.surface.elevated,
           borderTopWidth:  1,
-          paddingBottom:   4,
-          height:          58,
+          paddingBottom:   Platform.OS === 'ios' ? 24 : 8,
+          paddingTop:      8,
+          height:          Platform.OS === 'ios' ? 80 : 64,
         },
         tabBarActiveTintColor:   Colors.primary.default,
         tabBarInactiveTintColor: Colors.text.caption,
-        tabBarLabelStyle: { fontSize: Typography.size.xs, marginBottom: 4 },
+        tabBarLabelStyle: { fontSize: Typography.size.xs },
       }}
     >
       {TAB_SCREENS.map(({ name, component, label, icon }) => (

@@ -5,7 +5,7 @@ import {
 // ── DEV MODE ──────────────────────────────────────────────────────────────────
 // true  → skip the backend, every function returns mock data instantly.
 // false → hit the real FastAPI backend (update API_BASE_URL below first).
-export const DEV_MODE = true;
+export const DEV_MODE = false;
 // ─────────────────────────────────────────────────────────────────────────────
 
 // When testing on a physical device with Expo Go, set this to your computer's
@@ -13,7 +13,7 @@ export const DEV_MODE = true;
 //   iOS Simulator  → 'http://localhost:8001'
 //   Android Emu    → 'http://10.0.2.2:8001'
 //   Physical phone → 'http://<your-lan-ip>:8001'
-export const API_BASE_URL = 'http://localhost:8001';
+export const API_BASE_URL = 'http://192.168.1.169:8001';
 
 // ── Internal fetch helper ─────────────────────────────────────────────────────
 // The backend wraps every success as { success: true, data: <payload> }.
@@ -44,6 +44,9 @@ async function request(path, { token, body, method = 'GET', queryParams } = {}) 
   const ct = res.headers.get('content-type') ?? '';
   if (!ct.includes('application/json')) return res.text();
   const json = await res.json();
+  const result = json?.success !== undefined && 'data' in json ? json.data : json;
+
+  console.log('[API]', method, path, result);   // log API's response
   return json?.success !== undefined && 'data' in json ? json.data : json;
 }
 
@@ -101,6 +104,32 @@ export async function getSensorHistory(token, feedKey, startTime, endTime) {
   return request('/api/sensors/history', {
     method: 'POST',
     body: { auth_token: token, feed_key: feedKey, start_time: startTime, end_time: endTime },
+  });
+}
+
+// GET /api/sensor-data?feed_key=...&start_time=...&end_time=...&auth_token=...
+// Response shape: [{ value, created_at }]
+export async function getSensorData(token, feedKey, startTime, endTime) {
+  if (DEV_MODE) {
+    const raw = MOCK_HISTORY[feedKey] ?? [];
+    return raw.map(d => ({ value: d.value, created_at: d.time.toISOString() }));
+  }
+  return request('/api/sensor-data', {
+    token,
+    queryParams: { feed_key: feedKey, start_time: startTime, end_time: endTime },
+  });
+}
+
+// GET /api/device-data?feed_key=...&start_time=...&end_time=...
+// Response shape: { feed_key, data: [{ timestamp, value }], count }
+export async function getDeviceActivities(token, feedKey, startTime, endTime) {
+  if (DEV_MODE) {
+    const raw = MOCK_HISTORY[feedKey] ?? [];
+    return { feed_key: feedKey, data: raw.map(d => ({ timestamp: d.time.toISOString(), value: d.value })), count: raw.length };
+  }
+  return request('/api/device-data', {
+    token,
+    queryParams: { feed_key: feedKey, start_time: startTime, end_time: endTime },
   });
 }
 
@@ -168,14 +197,15 @@ export async function updateSchedule(token, scheduleId, data) {
 // ── Alerts ───────────────────────────────────────────────────────────────────
 // GET /api/alerts/list — returns server-generated alerts.
 // Optional `since` is an ISO timestamp string to filter recent alerts only.
-// Assumed response shape: [{ id, sensor_key, value, message, level, created_at }]
+// Real response shape: { alerts: [{ feed_key, type, title, msg, timestamp }] }
 export async function listAlerts(since = null) {
   if (DEV_MODE) {
     if (!since) return MOCK_ALERTS;
-    return MOCK_ALERTS.filter(a => new Date(a.created_at) >= new Date(since));
+    return MOCK_ALERTS.filter(a => new Date(a.timestamp) >= new Date(since));
   }
   const queryParams = since ? { since } : undefined;
-  return request('/api/alerts/list', { queryParams });
+  const res = await request('/api/alerts/list', { queryParams });
+  return Array.isArray(res) ? res : (res?.alerts ?? []);
 }
 
 // ── System ────────────────────────────────────────────────────────────────────
