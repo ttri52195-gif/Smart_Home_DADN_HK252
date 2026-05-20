@@ -46,8 +46,7 @@ smarthouse-app/
     ├── context/
     │   └── AuthContext.js        # JWT auth state — signIn / signUp / signOut
     ├── services/
-    │   ├── api.js                # Backend API client (all authenticated calls)
-    │   └── adafruitIO.js         # Adafruit IO client (unused — kept for fallback reference)
+    │   └── api.js                # Backend API client (all authenticated calls)
     └── screens/
         ├── LoginScreen.js        # Login / register form
         ├── HomeScreen.js         # Sensor overview + quick device controls + recent activity
@@ -272,8 +271,8 @@ The JWT token is passed as `Authorization: Bearer <token>` on all authenticated 
 - `GET /api/system/mode` — implemented in `api.js` but not wired to any screen.
 - `GET /api/users`, `GET /get-user-by-username` — implemented but only used by AccountSettings.
 
-### 7. Adafruit IO credentials
-- `src/services/adafruitIO.js` contains a hardcoded AIO key. The file is no longer called from any screen but should be rotated before shipping.
+### 7. Adafruit IO credentials (resolved)
+- `src/services/adafruitIO.js` was deleted — no screen imports it anymore. All chart data now comes from `GET /api/sensor-data`.
 
 ---
 
