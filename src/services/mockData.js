@@ -1,52 +1,34 @@
 // Mock responses that mirror the real API shape.
 // Used when DEV_MODE = true in api.js.
 
-// Mirrors the unwrapped shape returned by GET /api/sensors after the BE middleware strips { success, data }
+// ── Sensors ───────────────────────────────────────────────────────────────────
+// Mirrors GET /api/sensors → { sensors: [...], count }
 export const MOCK_SENSORS = {
   sensors: [
-    { feed_key: 'temperature', name: 'temperature', type: 'TEMPERATURE',    current_value: '27.4', last_recorded_at: '2026-05-08T07:26:43+00:00' },
-    { feed_key: 'humidity',    name: 'humidity',    type: 'HUMIDITY',        current_value: '65.2', last_recorded_at: '2026-05-08T07:26:43+00:00' },
-    { feed_key: 'rain',        name: 'rain',        type: 'RAIN',            current_value: '85',   last_recorded_at: '2026-05-08T07:26:43+00:00' },
-    { feed_key: 'gas',         name: 'gas',         type: 'GAS',             current_value: '312',  last_recorded_at: '2026-05-08T07:26:43+00:00' },
-    { feed_key: 'themis',      name: 'themis',      type: 'LIGHT_INTENSITY', current_value: '48.0', last_recorded_at: '2026-05-08T07:26:43+00:00' },
+    { feed_key: 'temperature', name: 'temperature', type: 'TEMPERATURE',    current_value: '28.00', unit: '°C',  location: 'Living Room', last_recorded_at: '2026-05-21T07:26:43+00:00' },
+    { feed_key: 'humidity',    name: 'humidity',    type: 'HUMIDITY',        current_value: '45',    unit: '%',   location: 'Living Room', last_recorded_at: '2026-05-21T07:26:43+00:00' },
+    { feed_key: 'rain',        name: 'rain',        type: 'RAIN',            current_value: '716',   unit: 'raw', location: 'Outdoor',     last_recorded_at: '2026-05-21T07:26:43+00:00' },
+    { feed_key: 'gas',         name: 'gas',         type: 'GAS',             current_value: '820',   unit: 'ppm', location: 'Kitchen',     last_recorded_at: '2026-05-21T07:26:43+00:00' },
+    { feed_key: 'themis',      name: 'themis',      type: 'LIGHT_INTENSITY', current_value: '82',    unit: '%',   location: 'Outdoor',     last_recorded_at: '2026-05-21T07:26:43+00:00' },
   ],
   count: 5,
 };
 
-export const MOCK_ROOMS = [
-  {
-    id: 'bedroom',
-    name: 'Master Bedroom',
-    type: 'BEDROOM',
-    devices: ['lb1', 'rgb', 'door', 'pir'],
-  },
-  {
-    id: 'living',
-    name: 'Living Room',
-    type: 'LIVING',
-    devices: ['light-pwm'],
-  },
-  {
-    id: 'kitchen',
-    name: 'Kitchen',
-    type: 'KITCHEN',
-    devices: ['lb1'],
-  },
-];
-
-// Mirrors the unwrapped shape returned by GET /api/devices (feed_key + value, not key + last_value)
+// ── Devices ───────────────────────────────────────────────────────────────────
+// Mirrors GET /api/devices → { devices: [...], count }
 export const MOCK_DEVICES = {
   devices: [
-    { feed_key: 'lb1',       name: 'Light Bulb 1',  type: 'LIGHT',  value: 'ON'    },
-    { feed_key: 'door',      name: 'Front Door',    type: 'DOOR',   value: 'CLOSE' },
-    { feed_key: 'pir',       name: 'Motion Sensor', type: 'MOTION', value: 'OFF'   },
-    { feed_key: 'rgb',       name: 'RGB Strip',     type: 'RGB',    value: 'OFF'   },
-    { feed_key: 'light-pwm', name: 'Dimmer Light',  type: 'DIMMER', value: 'OFF'   },
+    { feed_key: 'door',      name: 'DOOR',      type: 'DOOR',   status: 'ONLINE', value: 'OPEN', location: 'Entrance',    last_record_time: '2026-04-16T09:05:03+00:00' },
+    { feed_key: 'lb1',       name: 'LB1',       type: 'LIGHT',  status: 'ONLINE', value: '41',   location: 'Bedroom',     last_record_time: '2026-04-16T09:05:07+00:00' },
+    { feed_key: 'light-pwm', name: 'light_pwm', type: 'DIMMER', status: 'ONLINE', value: null,   location: 'Living Room', last_record_time: null                        },
+    { feed_key: 'pir',       name: 'PIR',       type: 'MOTION', status: 'ONLINE', value: 'ON',   location: 'Bedroom',     last_record_time: '2026-04-16T09:05:03+00:00' },
+    { feed_key: 'rgb',       name: 'RGB',       type: 'RGB',    status: 'ONLINE', value: '15',   location: 'Bedroom',     last_record_time: '2026-04-16T09:05:09+00:00' },
   ],
   count: 5,
 };
 
-// Real shape from GET /api/alerts/list → { alerts: [...] }
+// ── Alerts ────────────────────────────────────────────────────────────────────
+// Mirrors GET /api/alerts/list → { alerts: [...] }
 // Fields: feed_key, type, title, msg, timestamp
 export const MOCK_ALERTS = [
   {
@@ -72,6 +54,7 @@ export const MOCK_ALERTS = [
   },
 ];
 
+// ── Schedules ─────────────────────────────────────────────────────────────────
 export const MOCK_SCHEDULES = [
   {
     id: 1,
@@ -79,7 +62,7 @@ export const MOCK_SCHEDULES = [
     device_id: 1,
     action: 'TURN_ON',
     payload: null,
-    trigger_time: '2026-05-05T07:00:00Z',
+    trigger_time: '2026-05-21T07:00:00Z',
   },
   {
     id: 2,
@@ -87,21 +70,45 @@ export const MOCK_SCHEDULES = [
     device_id: 2,
     action: 'TURN_OFF',
     payload: null,
-    trigger_time: '2026-05-05T22:00:00Z',
+    trigger_time: '2026-05-21T22:00:00Z',
   },
 ];
 
-// Generates 30 fake history points ending now, spread over the last hour
-function fakeHistory(base, variance) {
+// ── Sensor history ────────────────────────────────────────────────────────────
+// Used by getSensorHistory and getSensorData DEV_MODE branches.
+// Shape: [{ value: number, time: Date }] — 30 points over the last hour.
+function fakeSensorHistory(base, variance) {
   const now = Date.now();
   return Array.from({ length: 30 }, (_, i) => ({
     value: parseFloat((base + (Math.random() - 0.5) * variance).toFixed(2)),
-    time: new Date(now - (29 - i) * 2 * 60 * 1000), // 2-min intervals
+    time:  new Date(now - (29 - i) * 2 * 60 * 1000), // 2-min intervals
   }));
 }
 
 export const MOCK_HISTORY = {
-  temperature: fakeHistory(27, 4),
-  humidity: fakeHistory(65, 10),
-  themis: fakeHistory(48, 20),
+  temperature: fakeSensorHistory(27,  4),
+  humidity:    fakeSensorHistory(65, 10),
+  themis:      fakeSensorHistory(48, 20),
+  rain:        fakeSensorHistory(70, 30),
+  gas:         fakeSensorHistory(350, 80),
+};
+
+// ── Device activity history ───────────────────────────────────────────────────
+// Used by getDeviceActivities DEV_MODE branch.
+// Shape: [{ value: string, time: Date }] — alternating states, 1-min intervals.
+// Most recent entry is the current state shown in MOCK_DEVICES.
+function fakeDeviceHistory(states) {
+  const now = Date.now();
+  return states.map((value, i) => ({
+    value,
+    time: new Date(now - (states.length - 1 - i) * 60 * 1000),
+  }));
+}
+
+export const MOCK_DEVICE_HISTORY = {
+  'lb1':       fakeDeviceHistory(['0', '41', '0', '41', '0', '41']),
+  'door':      fakeDeviceHistory(['OPEN', 'CLOSE', 'OPEN', 'CLOSE', 'OPEN', 'CLOSE']),
+  'pir':       fakeDeviceHistory(['ON', 'OFF', 'ON', 'OFF', 'ON', 'OFF']),
+  'rgb':       fakeDeviceHistory(['0', '15', '0', '15']),
+  'light-pwm': fakeDeviceHistory(['0', '50', '0', '50']),
 };

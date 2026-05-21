@@ -1,5 +1,5 @@
 import {
-  MOCK_SENSORS, MOCK_DEVICES, MOCK_SCHEDULES, MOCK_ALERTS, MOCK_HISTORY,
+  MOCK_SENSORS, MOCK_DEVICES, MOCK_SCHEDULES, MOCK_ALERTS, MOCK_HISTORY, MOCK_DEVICE_HISTORY,
 } from './mockData';
 
 // ── DEV MODE ──────────────────────────────────────────────────────────────────
@@ -13,7 +13,7 @@ export const DEV_MODE = false;
 //   iOS Simulator  → 'http://localhost:8001'
 //   Android Emu    → 'http://10.0.2.2:8001'
 //   Physical phone → 'http://<your-lan-ip>:8001'
-export const API_BASE_URL = 'http://192.168.1.169:8001';
+export const API_BASE_URL = 'http://192.168.30.203:8001';
 
 // ── Internal fetch helper ─────────────────────────────────────────────────────
 // The backend wraps every success as { success: true, data: <payload> }.
@@ -112,7 +112,7 @@ export async function getSensorHistory(token, feedKey, startTime, endTime) {
 export async function getSensorData(token, feedKey, startTime, endTime) {
   if (DEV_MODE) {
     const raw = MOCK_HISTORY[feedKey] ?? [];
-    return raw.map(d => ({ value: d.value, created_at: d.time.toISOString() }));
+    return { feed_key: feedKey, data: raw.map(d => ({ timestamp: d.time.toISOString(), value: String(d.value) })), count: raw.length };
   }
   return request('/api/sensor-data', {
     token,
@@ -124,8 +124,8 @@ export async function getSensorData(token, feedKey, startTime, endTime) {
 // Response shape: { feed_key, data: [{ timestamp, value }], count }
 export async function getDeviceActivities(token, feedKey, startTime, endTime) {
   if (DEV_MODE) {
-    const raw = MOCK_HISTORY[feedKey] ?? [];
-    return { feed_key: feedKey, data: raw.map(d => ({ timestamp: d.time.toISOString(), value: d.value })), count: raw.length };
+    const raw = MOCK_DEVICE_HISTORY[feedKey] ?? [];
+    return { feed_key: feedKey, data: raw.map(d => ({ timestamp: d.time.toISOString(), value: String(d.value) })), count: raw.length };
   }
   return request('/api/device-data', {
     token,

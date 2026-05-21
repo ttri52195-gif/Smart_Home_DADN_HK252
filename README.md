@@ -70,17 +70,23 @@ smarthouse-app/
 
 ### Home
 - Greeting header with current date
-- **3-column sensor grid**: dynamic — renders all sensors returned by `GET /api/sensors`. Icons and colours are configured per `feed_key` in `SENSOR_META`; name, value, and unit come from the API at runtime. New sensors appear automatically.
-- **Quick Controls**: dynamic — renders all devices from `GET /api/devices`. Visual config is keyed by device `type` in `DEVICE_META`. No hardcoded device list.
-- **Recent Activity**: last 5 minutes of device state changes fetched from `GET /api/device-data` for each device in parallel. Updates every 10 seconds with the sensor/device poll.
+- **3-column sensor grid**: dynamic — renders all sensors from `GET /api/sensors`. Icons and colours configured per `feed_key` in `SENSOR_META`; name, value, and unit come from the API at runtime. Sensors with `unit: "raw"` hide the unit label.
+- **Quick Controls**: dynamic — renders all devices from `GET /api/devices`. Visual config keyed by device `type` in `DEVICE_META`. Active state uses `isNumericOn` (any non-zero numeric string counts as ON) so devices like `lb1` (value `"41"`) and `rgb` (value `"15"`) render correctly.
+- **Recent Activity**: last 5 minutes of device state changes from `GET /api/device-data` fetched in parallel for all devices. Refreshes every 10 seconds with the poll cycle.
 - Pull-to-refresh; polling stops when the screen loses focus (`useFocusEffect`).
 
 ### Devices
-- Full device list from `GET /api/devices` with type-filter chips (All / Doors / Lights / Curtains / Climate)
+- Type-filter chips (All / Doors / Lights / Curtains / Climate)
+- **Room cards** (horizontal scrollable, above the device list):
+  - Grouped by the `location` field on each device; devices with `null` or missing location fall into a **"Default"** room
+  - Room icon selected by keyword match on the location string (e.g. "Bedroom" → `bed-outline`, "Kitchen" → `restaurant-outline`); falls back to `home-outline`
+  - Card shows device count for the currently active type filter — count and card visibility update live as the filter changes
+  - Tapping a card navigates to **RoomSettingScreen** passing `{ roomName, devices }` for that room
+- Full device list filtered by the active chip; active state uses `numericOn` logic (same as HomeScreen)
 - Toggle switch for lights/RGB/dimmer; lock/unlock toggle for doors
-- **Device Activities** section below the list:
-  - Follows the active type filter (only shows feed_keys matching the selected category)
-  - Time range chips: 5 min (default) / 1 hour / 1 day — changes trigger a new `GET /api/device-data` fetch
+- **Device Activities** section at the bottom:
+  - Follows the active type filter (feed_keys of matching devices only)
+  - Time range chips: 5 min (default) / 1 hour / 1 day — changing either triggers a fresh `GET /api/device-data` fetch
 - Pull-to-refresh
 
 ### Charts
@@ -231,7 +237,9 @@ The JWT token is passed as `Authorization: Bearer <token>` on all authenticated 
 
 **Polling**: `HomeScreen` polls `GET /api/sensors` and `GET /api/devices` every 10 seconds via `useFocusEffect` — polling starts when the tab gains focus and stops when it loses it. After each device list refresh, `GET /api/device-data` is fetched in parallel for all devices to populate the Recent Activity section.
 
-**Dynamic sensor/device rendering**: No screen hardcodes a list of sensors or devices. `SENSOR_META` / `DEVICE_META` provide icon + colour per `feed_key` / `type`; the API provides everything else. Unknown sensors/devices fall back to a generic icon.
+**Dynamic sensor/device rendering**: No screen hardcodes a list of sensors or devices. `SENSOR_META` / `DEVICE_META` provide icon + colour per `feed_key` / `type`; the API provides everything else. Unknown sensors/devices fall back to a generic icon. Device active state is determined by `isNumericOn` (non-zero numeric string) OR `parseBool` (ON/OPEN/1/TRUE), so numeric PWM/brightness values are handled correctly.
+
+**Room grouping**: `DevicesScreen` derives room cards at render time by grouping the device list by `location` field. No room data is fetched separately. Devices without a location are grouped into "Default". The `LOCATION_META` map resolves a location string to an icon by keyword substring match.
 
 **Chart data**: `ChartScreen` calls `GET /api/sensor-data?feed_key=...&start_time=...&end_time=...` with a Bearer token. The `start_time` and `end_time` are derived from the selected time range chip (5 min / 1 hour / 1 day). Response shape: `{ count, data: [{ timestamp, value }], feed_key }`.
 
@@ -277,6 +285,11 @@ The JWT token is passed as `Authorization: Bearer <token>` on all authenticated 
 ---
 
 ## Changelog
+
+### 2026-05-21
+- **mockData.js**: added `unit` field to all sensors; updated device fields (`status`, `last_record_time`, real values like `lb1="41"`, `rgb="15"`); added `MOCK_DEVICE_HISTORY` keyed by device `feed_key`; `getDeviceActivities` DEV_MODE now uses `MOCK_DEVICE_HISTORY` instead of sensor history; `getSensorData` DEV_MODE returns same `{ count, data, feed_key }` envelope as real API; removed unused `MOCK_ROOMS`.
+- **HomeScreen + DevicesScreen**: added `isNumericOn` helper — non-zero numeric device values (PWM brightness, RGB level) now correctly register as active/ON.
+- **DevicesScreen**: restored room card horizontal slider — cards grouped by device `location` field, null/missing location falls into "Default" room; `LOCATION_META` maps 9 location keywords to icons with `home-outline` fallback; cards filter by active type chip and update device count live; tapping a card navigates to `RoomSettingScreen` with `{ roomName, devices }`.
 
 ### 2026-05-19
 - **ChartScreen**: replaced hardcoded 3-sensor list with dynamic sensor chips from `GET /api/sensors`; switched chart data source from Adafruit IO to `GET /api/sensor-data`; added 5 min / 1 hour / 1 day time range filter; removed auto-refresh countdown.

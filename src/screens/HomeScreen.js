@@ -73,16 +73,22 @@ function sensorStatus(key, raw) {
   return { text: 'OK', color: Colors.success };
 }
 
+function isNumericOn(value) {
+  const n = parseFloat(value);
+  return !isNaN(n) && n > 0;
+}
+
 function isDeviceActive(type, value) {
-  if (type === 'DOOR') return !parseBool(value);             // CLOSE (locked) = active
-  if (type === 'RGB')  return parseFloat(value) > 0 || parseBool(value);
+  if (type === 'DOOR')   return !parseBool(value);   // CLOSE (locked) = active
+  if (type === 'RGB')    return isNumericOn(value) || parseBool(value);
+  if (type === 'LIGHT' || type === 'DIMMER') return isNumericOn(value) || parseBool(value);
   return parseBool(value);
 }
 
 function deviceStatusLabel(type, value) {
   if (type === 'DOOR') return parseBool(value) ? 'OPEN' : 'LOCKED';
-  if (type === 'RGB')  return (parseFloat(value) > 0 || parseBool(value)) ? 'ON' : 'OFF';
-  return parseBool(value) ? 'ON' : 'OFF';
+  const on = isNumericOn(value) || parseBool(value);
+  return on ? 'ON' : 'OFF';
 }
 
 function chunkSensors(arr, size) {

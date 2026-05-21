@@ -26,6 +26,24 @@ const TYPE_FILTER = {
   GENERIC: 'Climate',
 };
 
+const LOCATION_META = {
+  bedroom:  { icon: 'bed-outline'           },
+  living:   { icon: 'tv-outline'            },
+  kitchen:  { icon: 'restaurant-outline'    },
+  entrance: { icon: 'enter-outline'         },
+  outdoor:  { icon: 'partly-sunny-outline'  },
+  bathroom: { icon: 'water-outline'         },
+  office:   { icon: 'briefcase-outline'     },
+  garage:   { icon: 'car-outline'           },
+  dining:   { icon: 'cafe-outline'          },
+};
+
+function roomIcon(location) {
+  const l = (location ?? '').toLowerCase();
+  const key = Object.keys(LOCATION_META).find(k => l.includes(k));
+  return key ? LOCATION_META[key].icon : 'home-outline';
+}
+
 const TYPE_META = {
   DOOR:    { icon: 'lock-closed-outline',   isDoor: true  },
   LIGHT:   { icon: 'bulb-outline'                         },
@@ -243,6 +261,44 @@ export default function DevicesScreen({ navigation }) {
           ))}
         </ScrollView>
 
+        {/* ── Room cards ─────────────────────────────── */}
+        {(() => {
+          const scopedDevices = activeFilter === 'All'
+            ? devices
+            : devices.filter(d => TYPE_FILTER[d.type] === activeFilter);
+          const rooms = Object.values(
+            scopedDevices.reduce((acc, d) => {
+              const loc = d.location || 'Default';
+              if (!acc[loc]) acc[loc] = { name: loc, count: 0, devices: [] };
+              acc[loc].count++;
+              acc[loc].devices.push(d);
+              return acc;
+            }, {})
+          );
+          if (rooms.length === 0) return null;
+          return (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.roomRow}
+            >
+              {rooms.map(room => (
+                <TouchableOpacity
+                  key={room.name}
+                  style={s.roomCard}
+                  onPress={() => navigation?.navigate('RoomSetting', { roomName: room.name, devices: room.devices })}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name={roomIcon(room.name)} size={26} color={Colors.primary.default} />
+                  <View style={{ flex: 1 }} />
+                  <Text style={s.roomName}>{room.name}</Text>
+                  <Text style={s.roomCount}>{room.count} device{room.count !== 1 ? 's' : ''}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          );
+        })()}
+
         {/* ── Device list ────────────────────────────── */}
         <View style={s.deviceList}>
           {filteredDevices.map((device, i) => {
@@ -251,13 +307,12 @@ export default function DevicesScreen({ navigation }) {
             const val  = states[key];
             const busy = !!cmdLoading[key];
 
-            const isActive = meta.isDoor ? !parseBool(val)
-              : meta.isRGB  ? parseFloat(val) > 0 || parseBool(val)
-              : parseBool(val);
+            const numericOn = !isNaN(parseFloat(val)) && parseFloat(val) > 0;
+            const isActive  = meta.isDoor ? !parseBool(val)
+              : numericOn || parseBool(val);
 
             const statusLabel = meta.isDoor ? (parseBool(val) ? 'OPEN' : 'LOCKED')
-              : meta.isRGB     ? (isActive ? 'ON' : 'OFF')
-              : isActive       ? 'ON' : 'OFF';
+              : isActive ? 'ON' : 'OFF';
 
             const badgeColor     = isActive ? Colors.primary.default : Colors.surface.elevated;
             const badgeTextColor = isActive ? Colors.primary.default : Colors.text.caption;
@@ -395,12 +450,12 @@ const s = StyleSheet.create({
     gap:               Spacing.md,
   },
   roomCard: {
-    width:           130,
-    height:          130,
+    width:           120,
+    height:          120,
     backgroundColor: Colors.surface.card,
     borderRadius:    Radius.xl,
     padding:         Spacing.lg,
-    justifyContent:  'flex-end',
+    justifyContent:  'space-between',
   },
   roomName:  { color: Colors.text.title,   fontSize: Typography.size.md, fontWeight: Typography.weight.bold, marginTop: Spacing.sm },
   roomCount: { color: Colors.text.caption, fontSize: Typography.size.xs, marginTop: 2 },
