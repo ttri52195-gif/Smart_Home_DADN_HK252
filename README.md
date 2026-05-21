@@ -286,6 +286,10 @@ The JWT token is passed as `Authorization: Bearer <token>` on all authenticated 
 
 ## Changelog
 
+### 2026-05-22
+- **HomeScreen + DevicesScreen**: LIGHT and RGB devices now use a horizontal drag slider (0–100) instead of a toggle. Slider has a white thumb with colored border that tracks the fill edge using CSS percentage positioning + `translateX`. Value label shows the numeric level or "OFF". Card press is disabled for slider devices to avoid gesture conflicts.
+- **ManualMode**: replaced the vertical slider with a `BigVerticalToggle` for non-LIGHT/non-RGB devices (DOOR, MOTION, DIMMER, GENERIC) — a pill-shaped vertical toggle where the white knob springs to the top (ON) or bottom (OFF) using `Animated.spring`; label below shows current value string (ON/OFF/OPEN/CLOSE); DOOR devices cycle OPEN↔CLOSE. LIGHT/RGB still show the vertical slider, but the value label now shows the raw number without `%`. Fixed field names throughout ManualMode: now reads `feed_key ?? key` and `value ?? last_value` to match the current API device shape.
+
 ### 2026-05-21
 - **mockData.js**: added `unit` field to all sensors; updated device fields (`status`, `last_record_time`, real values like `lb1="41"`, `rgb="15"`); added `MOCK_DEVICE_HISTORY` keyed by device `feed_key`; `getDeviceActivities` DEV_MODE now uses `MOCK_DEVICE_HISTORY` instead of sensor history; `getSensorData` DEV_MODE returns same `{ count, data, feed_key }` envelope as real API; removed unused `MOCK_ROOMS`.
 - **HomeScreen + DevicesScreen**: added `isNumericOn` helper — non-zero numeric device values (PWM brightness, RGB level) now correctly register as active/ON.

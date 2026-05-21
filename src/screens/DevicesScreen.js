@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, PanResponder,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -90,6 +90,55 @@ function formatDate() {
     weekday: 'long', month: 'long', day: 'numeric',
   });
 }
+
+const HS_THUMB_R = 8;
+
+function HorizontalSlider({ value, color, onChange, style }) {
+  const trackW = useRef(0);
+  const pan = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > Math.abs(gs.dy),
+    onPanResponderGrant: (e) => {
+      if (trackW.current > 0)
+        onChange(Math.round(Math.max(0, Math.min(1, e.nativeEvent.locationX / trackW.current)) * 100));
+    },
+    onPanResponderMove: (e) => {
+      if (trackW.current > 0)
+        onChange(Math.round(Math.max(0, Math.min(1, e.nativeEvent.locationX / trackW.current)) * 100));
+    },
+  })).current;
+  return (
+    <View
+      onLayout={e => { trackW.current = e.nativeEvent.layout.width; }}
+      style={[hs.wrapper, style]}
+      {...pan.panHandlers}
+    >
+      <View style={hs.track}>
+        <View style={[hs.fill, { width: `${value}%`, backgroundColor: color }]} />
+      </View>
+      <View style={[hs.thumb, {
+        left: `${value}%`,
+        borderColor: color,
+        transform: [{ translateX: -HS_THUMB_R }],
+      }]} />
+    </View>
+  );
+}
+
+const hs = StyleSheet.create({
+  wrapper: { height: HS_THUMB_R * 2, justifyContent: 'center' },
+  track:   { height: 6, borderRadius: 3, backgroundColor: Colors.surface.elevated, overflow: 'hidden' },
+  fill:    { height: '100%', borderRadius: 3 },
+  thumb: {
+    position: 'absolute',
+    width: HS_THUMB_R * 2, height: HS_THUMB_R * 2, borderRadius: HS_THUMB_R,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 3,
+  },
+});
 
 function Toggle({ value, color = Colors.success, onPress }) {
   return (
@@ -202,6 +251,15 @@ export default function DevicesScreen({ navigation }) {
     }
   }
 
+  async function handleSlider(key, val) {
+    setStates(p => ({ ...p, [key]: String(val) }));
+    try {
+      await setDeviceState(key, String(val), token);
+    } catch (e) {
+      console.warn(e.message);
+    }
+  }
+
   const filteredDevices = devices.filter(d =>
     activeFilter === 'All' || TYPE_FILTER[d.type] === activeFilter
   );
@@ -302,18 +360,18 @@ export default function DevicesScreen({ navigation }) {
         {/* ── Device list ────────────────────────────── */}
         <View style={s.deviceList}>
           {filteredDevices.map((device, i) => {
-            const key  = device.feed_key ?? device.key;
-            const meta = TYPE_META[device.type] ?? TYPE_META.GENERIC;
-            const val  = states[key];
-            const busy = !!cmdLoading[key];
+            const key      = device.feed_key ?? device.key;
+            const meta     = TYPE_META[device.type] ?? TYPE_META.GENERIC;
+            const val      = states[key];
+            const busy     = !!cmdLoading[key];
+            const isSlider = device.type === 'LIGHT' || device.type === 'RGB';
+            const numVal   = parseFloat(val) || 0;
 
             const numericOn = !isNaN(parseFloat(val)) && parseFloat(val) > 0;
-            const isActive  = meta.isDoor ? !parseBool(val)
-              : numericOn || parseBool(val);
+            const isActive  = meta.isDoor ? !parseBool(val) : numericOn || parseBool(val);
 
-            const statusLabel = meta.isDoor ? (parseBool(val) ? 'OPEN' : 'LOCKED')
-              : isActive ? 'ON' : 'OFF';
-
+            const statusLabel    = meta.isDoor ? (parseBool(val) ? 'OPEN' : 'LOCKED') : isActive ? 'ON' : 'OFF';
+            const badgeLabel     = isSlider ? (isActive ? String(Math.round(numVal)) : 'OFF') : statusLabel;
             const badgeColor     = isActive ? Colors.primary.default : Colors.surface.elevated;
             const badgeTextColor = isActive ? Colors.primary.default : Colors.text.caption;
 
@@ -334,6 +392,14 @@ export default function DevicesScreen({ navigation }) {
                 {/* Name */}
                 <View style={s.deviceInfo}>
                   <Text style={s.deviceName}>{device.name ?? key}</Text>
+                  {isSlider && (
+                    <HorizontalSlider
+                      value={numVal}
+                      color={Colors.primary.default}
+                      onChange={v => handleSlider(key, v)}
+                      style={{ marginTop: 6 }}
+                    />
+                  )}
                 </View>
 
                 {/* Badge + control */}
@@ -343,13 +409,13 @@ export default function DevicesScreen({ navigation }) {
                     borderColor:     badgeColor,
                   }]}>
                     <Text style={[s.badgeText, { color: badgeTextColor }]}>
-                      {statusLabel}
+                      {badgeLabel}
                     </Text>
                   </View>
 
                   {busy ? (
                     <ActivityIndicator size="small" color={Colors.primary.default} />
-                  ) : meta.isDoor ? (
+                  ) : isSlider ? null : meta.isDoor ? (
                     <Toggle
                       value={isActive}
                       color={Colors.success}

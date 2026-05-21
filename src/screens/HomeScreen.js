@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Dimensions,
+  ActivityIndicator, RefreshControl, Dimensions, PanResponder,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -124,6 +124,55 @@ function actColor(type, value) {
   return (v === 'ON' || v === 'OPEN') ? Colors.success : Colors.text.caption;
 }
 
+const HS_THUMB_R = 8;
+
+function HorizontalSlider({ value, color, onChange, style }) {
+  const trackW = useRef(0);
+  const pan = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > Math.abs(gs.dy),
+    onPanResponderGrant: (e) => {
+      if (trackW.current > 0)
+        onChange(Math.round(Math.max(0, Math.min(1, e.nativeEvent.locationX / trackW.current)) * 100));
+    },
+    onPanResponderMove: (e) => {
+      if (trackW.current > 0)
+        onChange(Math.round(Math.max(0, Math.min(1, e.nativeEvent.locationX / trackW.current)) * 100));
+    },
+  })).current;
+  return (
+    <View
+      onLayout={e => { trackW.current = e.nativeEvent.layout.width; }}
+      style={[hs.wrapper, style]}
+      {...pan.panHandlers}
+    >
+      <View style={hs.track}>
+        <View style={[hs.fill, { width: `${value}%`, backgroundColor: color }]} />
+      </View>
+      <View style={[hs.thumb, {
+        left: `${value}%`,
+        borderColor: color,
+        transform: [{ translateX: -HS_THUMB_R }],
+      }]} />
+    </View>
+  );
+}
+
+const hs = StyleSheet.create({
+  wrapper: { height: HS_THUMB_R * 2, justifyContent: 'center' },
+  track:   { height: 6, borderRadius: 3, backgroundColor: Colors.surface.elevated, overflow: 'hidden' },
+  fill:    { height: '100%', borderRadius: 3 },
+  thumb: {
+    position: 'absolute',
+    width: HS_THUMB_R * 2, height: HS_THUMB_R * 2, borderRadius: HS_THUMB_R,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 3,
+  },
+});
+
 function Toggle({ value, color = Colors.success, onPress, disabled }) {
   return (
     <TouchableOpacity
@@ -229,6 +278,15 @@ export default function HomeScreen({ navigation }) {
     }
   }
 
+  async function handleSlider(key, val) {
+    setDevices(p => ({ ...p, [key]: String(val) }));
+    try {
+      await setDeviceState(key, String(val), token);
+    } catch (e) {
+      console.warn(e.message);
+    }
+  }
+
   const activeCount = deviceList.filter(d =>
     isDeviceActive(d.type, devices[d.feed_key] ?? d.value)
   ).length;
@@ -311,7 +369,9 @@ export default function HomeScreen({ navigation }) {
             const isActive    = isDeviceActive(device.type, currentVal);
             const statusLabel = deviceStatusLabel(device.type, currentVal);
             const busy        = !!cmdLoading[device.feed_key];
-            const onPress     = () => meta.isDoor
+            const isSlider    = device.type === 'LIGHT' || device.type === 'RGB';
+            const numVal      = parseFloat(currentVal) || 0;
+            const onPress     = isSlider ? undefined : () => meta.isDoor
               ? handleDoor(device.feed_key, parseBool(currentVal) ? 'CLOSE' : 'OPEN')
               : handleToggle(device.feed_key);
 
@@ -320,8 +380,8 @@ export default function HomeScreen({ navigation }) {
                 key={device.feed_key}
                 style={[s.qaCard, { borderColor: isActive ? meta.borderColor : 'transparent' }]}
                 onPress={onPress}
-                disabled={busy}
-                activeOpacity={0.85}
+                disabled={busy || isSlider}
+                activeOpacity={isSlider ? 1 : 0.85}
               >
                 {isActive && <View style={[s.qaTopBar, { backgroundColor: meta.activeColor }]} />}
 
@@ -334,18 +394,31 @@ export default function HomeScreen({ navigation }) {
 
                 <View style={s.qaFill} />
 
-                <View style={s.qaBottom}>
-                  {busy ? (
-                    <ActivityIndicator size="small" color={meta.activeColor} />
-                  ) : (
-                    <>
-                      <Text style={[s.qaStatus, { color: isActive ? meta.activeColor : Colors.text.caption }]}>
-                        {statusLabel}
-                      </Text>
-                      <Toggle value={isActive} color={meta.toggleColor} onPress={onPress} />
-                    </>
-                  )}
-                </View>
+                {isSlider ? (
+                  <View style={s.qaSliderSection}>
+                    <Text style={[s.qaStatus, { color: isActive ? meta.activeColor : Colors.text.caption }]}>
+                      {isActive ? String(Math.round(numVal)) : 'OFF'}
+                    </Text>
+                    <HorizontalSlider
+                      value={numVal}
+                      color={meta.activeColor}
+                      onChange={v => handleSlider(device.feed_key, v)}
+                    />
+                  </View>
+                ) : (
+                  <View style={s.qaBottom}>
+                    {busy ? (
+                      <ActivityIndicator size="small" color={meta.activeColor} />
+                    ) : (
+                      <>
+                        <Text style={[s.qaStatus, { color: isActive ? meta.activeColor : Colors.text.caption }]}>
+                          {statusLabel}
+                        </Text>
+                        <Toggle value={isActive} color={meta.toggleColor} onPress={onPress} />
+                      </>
+                    )}
+                  </View>
+                )}
               </TouchableOpacity>
             );
           })}
@@ -481,8 +554,9 @@ const s = StyleSheet.create({
   qaName:   { color: Colors.text.title,   fontSize: Typography.size.md, fontWeight: Typography.weight.bold, marginTop: Spacing.sm },
   qaSub:    { color: Colors.text.caption, fontSize: Typography.size.xs, marginTop: 2 },
   qaFill:   { flex: 1, minHeight: Spacing.md },
-  qaBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: Spacing.sm },
-  qaStatus: { fontSize: Typography.size.xs, fontWeight: Typography.weight.bold },
+  qaBottom:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: Spacing.sm },
+  qaSliderSection: { gap: Spacing.xs },
+  qaStatus:        { fontSize: Typography.size.xs, fontWeight: Typography.weight.bold },
 
   toggle: {
     width: 40, height: 22, borderRadius: 11,

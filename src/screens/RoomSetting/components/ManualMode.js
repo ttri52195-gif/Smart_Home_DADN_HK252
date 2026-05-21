@@ -7,7 +7,7 @@
  * Khớp Figma: tabs icon + tên, fan image, slider dọc, nút Save vàng.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import {
   PanResponder,
   ActivityIndicator,
   Alert,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../../context/AuthContext';
@@ -42,6 +43,10 @@ function parseBool(val) {
 function parseLevel(val) {
   const n = parseInt(val, 10);
   return isNaN(n) ? 50 : Math.max(0, Math.min(100, n));
+}
+
+function isSliderDevice(type) {
+  return type === 'LIGHT' || type === 'RGB';
 }
 
 // ── Slider dọc (vertical) ─────────────────────────────────────────
@@ -119,43 +124,121 @@ const sl = StyleSheet.create({
   },
 });
 
+// ── Vertical Toggle (for non-slider devices) ─────────────────────
+const VT_W    = 56;
+const VT_H    = 100;
+const VT_KNOB = 46;
+const VT_PAD  = 5;
+
+function BigVerticalToggle({ value, onChange }) {
+  const isOn = parseBool(value);
+  const anim = useRef(new Animated.Value(isOn ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.spring(anim, {
+      toValue:         parseBool(value) ? 1 : 0,
+      useNativeDriver: false,
+      tension:         120,
+      friction:        7,
+    }).start();
+  }, [value]);
+
+  // knob at top = ON, knob at bottom = OFF
+  const knobTop = anim.interpolate({
+    inputRange:  [0, 1],
+    outputRange: [VT_H - VT_KNOB - VT_PAD, VT_PAD],
+  });
+
+  function handlePress() {
+    const v = String(value ?? '').toUpperCase();
+    if (v === 'OPEN')  { onChange('CLOSE'); return; }
+    if (v === 'CLOSE') { onChange('OPEN');  return; }
+    onChange(isOn ? 'OFF' : 'ON');
+  }
+
+  const displayVal = String(value ?? 'OFF').toUpperCase();
+
+  return (
+    <View style={bvt.container}>
+      <TouchableOpacity
+        onPress={handlePress}
+        activeOpacity={0.85}
+        style={[bvt.track, { backgroundColor: isOn ? Colors.primary.default : Colors.surface.elevated }]}
+      >
+        <Animated.View style={[bvt.knob, { top: knobTop }]} />
+      </TouchableOpacity>
+      <Text style={[bvt.label, { color: isOn ? Colors.primary.default : Colors.text.caption }]}>
+        {displayVal}
+      </Text>
+    </View>
+  );
+}
+
+const bvt = StyleSheet.create({
+  container: { alignItems: 'center', gap: Spacing.md },
+  track: {
+    width:        VT_W,
+    height:       VT_H,
+    borderRadius: VT_W / 2,
+    overflow:     'hidden',
+  },
+  knob: {
+    position:        'absolute',
+    left:            VT_PAD,
+    width:           VT_KNOB,
+    height:          VT_KNOB,
+    borderRadius:    VT_KNOB / 2,
+    backgroundColor: '#fff',
+    shadowColor:     '#000',
+    shadowOpacity:   0.25,
+    shadowRadius:    4,
+    shadowOffset:    { width: 0, height: 2 },
+    elevation:       4,
+  },
+  label: {
+    fontSize:   Typography.size.lg,
+    fontWeight: Typography.weight.bold,
+  },
+});
+
 // ── ManualMode Component ──────────────────────────────────────────
 export default function ManualMode({ devices = [] }) {
   const { token } = useAuth();
 
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const [levels, setLevels] = useState(() => {
+  const [deviceValues, setDeviceValues] = useState(() => {
     const init = {};
     devices.forEach((d) => {
-      init[d.key] = parseBool(d.last_value) ? parseLevel(d.last_value) : 50;
+      const k = d.feed_key ?? d.key;
+      const raw = d.value ?? d.last_value;
+      init[k] = isSliderDevice(d.type) ? parseLevel(raw) : String(raw ?? 'OFF');
     });
     return init;
   });
   const [saving, setSaving] = useState(false);
 
-  const device = devices[selectedIdx];
-  const level = device ? (levels[device.key] ?? 50) : 50;
-  const meta = device
-    ? (DEVICE_META[device.type] ?? DEVICE_META.GENERIC)
-    : DEVICE_META.GENERIC;
+  const device   = devices[selectedIdx];
+  const deviceKey = device ? (device.feed_key ?? device.key) : null;
+  const currVal  = device ? (deviceValues[deviceKey] ?? (isSliderDevice(device.type) ? 50 : 'OFF')) : 50;
+  const meta     = device ? (DEVICE_META[device.type] ?? DEVICE_META.GENERIC) : DEVICE_META.GENERIC;
 
-  const handleLevelChange = useCallback(
-    (val) => {
-      if (!device) return;
-      setLevels((prev) => ({ ...prev, [device.key]: val }));
-    },
-    [device],
-  );
+  const handleLevelChange = useCallback((val) => {
+    if (!deviceKey) return;
+    setDeviceValues((prev) => ({ ...prev, [deviceKey]: val }));
+  }, [deviceKey]);
+
+  const handleToggleValue = useCallback((next) => {
+    if (!deviceKey) return;
+    setDeviceValues((prev) => ({ ...prev, [deviceKey]: next }));
+  }, [deviceKey]);
 
   async function handleSave() {
     if (!device) return;
     setSaving(true);
+    const stateVal = String(currVal);
     try {
-      // Gửi giá trị: với thiết bị toggle → ON/OFF, với dimmer → giá trị số
-      const isDimmer = device.type === 'DIMMER' || device.type === 'RGB';
-      const stateVal = isDimmer ? String(level) : level > 0 ? 'ON' : 'OFF';
-      await setDeviceState(device.key, stateVal, token);
-      Alert.alert('Saved', `${device.name ?? device.key} → ${stateVal}`);
+      await setDeviceState(deviceKey, stateVal, token);
+      Alert.alert('Saved', `${device.name ?? deviceKey} → ${stateVal}`);
     } catch (e) {
       Alert.alert('Error', e.message);
     } finally {
@@ -183,9 +266,10 @@ export default function ManualMode({ devices = [] }) {
         {devices.map((d, idx) => {
           const m = DEVICE_META[d.type] ?? DEVICE_META.GENERIC;
           const active = idx === selectedIdx;
+          const dk = d.feed_key ?? d.key;
           return (
             <TouchableOpacity
-              key={d.key}
+              key={dk}
               style={[s.tab, active && s.tabActive]}
               onPress={() => setSelectedIdx(idx)}
               activeOpacity={0.8}
@@ -197,7 +281,7 @@ export default function ManualMode({ devices = [] }) {
               />
               {active && (
                 <Text style={s.tabLabel} numberOfLines={1}>
-                  {d.name ?? d.key}
+                  {d.name ?? dk}
                 </Text>
               )}
             </TouchableOpacity>
@@ -209,14 +293,20 @@ export default function ManualMode({ devices = [] }) {
       <View style={s.imageArea}>
         <View style={s.imagePlaceholder}>
           <Ionicons name={meta.icon} size={72} color={Colors.primary.default} />
-          <Text style={s.deviceName}>{device?.name ?? device?.key}</Text>
+          <Text style={s.deviceName}>{device?.name ?? deviceKey}</Text>
         </View>
       </View>
 
-      {/* ── Slider ───────────────────────────────────── */}
+      {/* ── Slider / Toggle ──────────────────────────── */}
       <View style={s.sliderArea}>
-        <Text style={s.sliderValue}>{level}%</Text>
-        <VerticalSlider value={level} onChange={handleLevelChange} />
+        {isSliderDevice(device?.type) ? (
+          <>
+            <Text style={s.sliderValue}>{Math.round(currVal)}</Text>
+            <VerticalSlider value={currVal} onChange={handleLevelChange} />
+          </>
+        ) : (
+          <BigVerticalToggle value={currVal} onChange={handleToggleValue} />
+        )}
       </View>
 
       {/* ── Save Button ──────────────────────────────── */}
