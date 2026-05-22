@@ -104,9 +104,17 @@ function toApiTime(date) {
 function formatAge(date) {
   if (!date || isNaN(date)) return '';
   const secs = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (secs < 60)   return `${secs}s ago`;
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  return `${Math.floor(secs / 3600)}h ago`;
+  if (secs < 60)    return `${secs}s ago`;
+  if (secs < 3600)  return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  return `${Math.floor(secs / 86400)}d ago`;
+}
+
+const ONLINE_MS = 5 * 60 * 1000;
+function isOnline(ts) {
+  if (!ts) return false;
+  const d = new Date(ts);
+  return !isNaN(d) && (Date.now() - d.getTime()) < ONLINE_MS;
 }
 
 function actIcon(type, value) {
@@ -287,9 +295,8 @@ export default function HomeScreen({ navigation }) {
     }
   }
 
-  const activeCount = deviceList.filter(d =>
-    isDeviceActive(d.type, devices[d.feed_key] ?? d.value)
-  ).length;
+  const onlineSensorCount = sensorList.filter(s => isOnline(s.last_recorded_at)).length;
+  const onlineDeviceCount = deviceList.filter(d => isOnline(d.last_record_time)).length;
 
   if (loading) {
     return (
@@ -333,23 +340,35 @@ export default function HomeScreen({ navigation }) {
       >
 
         {/* ── Sensor strip ───────────────────────────── */}
-        <Text style={s.activeLabel}>{sensorList.length} sensor{sensorList.length !== 1 ? 's' : ''}</Text>
+        <Text style={s.activeLabel}>
+          {sensorList.length} sensor{sensorList.length !== 1 ? 's' : ''} · {onlineSensorCount} online
+        </Text>
+        {onlineSensorCount === 0 && sensorList.length > 0 && (
+          <View style={s.sectionOfflineBanner}>
+            <Ionicons name="cloud-offline-outline" size={20} color={Colors.text.caption} />
+            <Text style={s.sectionOfflineText}>All sensors are offline — no data in the last 5 min</Text>
+          </View>
+        )}
         <View style={s.envStrip}>
           {chunkSensors(sensorList, SENSOR_COLS).map((row, ri) => (
             <View key={ri} style={[s.envRow, row.length < SENSOR_COLS && s.envRowCenter]}>
               {row.map(sensor => {
-                const meta   = SENSOR_META[sensor.feed_key] ?? { icon: 'analytics-outline', color: Colors.text.caption };
-                const num    = parseFloat(sensor.current_value);
-                const unit   = sensor.unit === 'raw' ? '' : sensor.unit;
-                const status = sensorStatus(sensor.feed_key, sensor.current_value);
+                const meta     = SENSOR_META[sensor.feed_key] ?? { icon: 'analytics-outline', color: Colors.text.caption };
+                const num      = parseFloat(sensor.current_value);
+                const unit     = sensor.unit === 'raw' ? '' : sensor.unit;
+                const status   = sensorStatus(sensor.feed_key, sensor.current_value);
+                const online   = isOnline(sensor.last_recorded_at);
+                const lastDate = sensor.last_recorded_at ? new Date(sensor.last_recorded_at) : null;
                 return (
-                  <View key={sensor.feed_key} style={s.envTile}>
-                    <Ionicons name={meta.icon} size={20} color={meta.color} />
-                    <Text style={[s.envVal, { color: meta.color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                  <View key={sensor.feed_key} style={[s.envTile, !online && { opacity: 0.6 }]}>
+                    <Ionicons name={meta.icon} size={20} color={online ? meta.color : Colors.text.caption} />
+                    <Text style={[s.envVal, { color: online ? meta.color : Colors.text.caption }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
                       {!isNaN(num) ? `${Math.round(num)}${unit}` : '—'}
                     </Text>
                     <Text style={s.envLabel}>{sensor.name}</Text>
-                    {status && <Text style={[s.envStatus, { color: status.color }]}>{status.text}</Text>}
+                    {online && status && <Text style={[s.envStatus, { color: status.color }]}>{status.text}</Text>}
+                    {!online && <View style={s.offlineChip}><Text style={s.offlineChipText}>OFFLINE</Text></View>}
+                    {lastDate && <Text style={s.envLastTime}>{formatAge(lastDate)}</Text>}
                   </View>
                 );
               })}
@@ -360,8 +379,14 @@ export default function HomeScreen({ navigation }) {
         {/* ── Quick Control ──────────────────────────── */}
         <View style={s.sectionHeader}>
           <Text style={s.sectionTitle}>QUICK CONTROL</Text>
-          <Text style={s.sectionBadge}>{activeCount} active</Text>
+          <Text style={s.sectionBadge}>{onlineDeviceCount} online</Text>
         </View>
+        {onlineDeviceCount === 0 && deviceList.length > 0 && (
+          <View style={s.sectionOfflineBanner}>
+            <Ionicons name="cloud-offline-outline" size={20} color={Colors.text.caption} />
+            <Text style={s.sectionOfflineText}>All devices are offline — no data in the last 5 min</Text>
+          </View>
+        )}
         <View style={s.grid}>
           {deviceList.map(device => {
             const meta        = DEVICE_META[device.type] ?? { icon: 'hardware-chip-outline', iconActive: 'hardware-chip', activeColor: Colors.primary.default, borderColor: 'rgba(228,181,24,0.3)', toggleColor: Colors.success };
@@ -371,6 +396,8 @@ export default function HomeScreen({ navigation }) {
             const busy        = !!cmdLoading[device.feed_key];
             const isSlider    = device.type === 'LIGHT' || device.type === 'RGB';
             const numVal      = parseFloat(currentVal) || 0;
+            const online      = isOnline(device.last_record_time);
+            const lastDate    = device.last_record_time ? new Date(device.last_record_time) : null;
             const onPress     = isSlider ? undefined : () => meta.isDoor
               ? handleDoor(device.feed_key, parseBool(currentVal) ? 'CLOSE' : 'OPEN')
               : handleToggle(device.feed_key);
@@ -378,30 +405,35 @@ export default function HomeScreen({ navigation }) {
             return (
               <TouchableOpacity
                 key={device.feed_key}
-                style={[s.qaCard, { borderColor: isActive ? meta.borderColor : 'transparent' }]}
+                style={[
+                  s.qaCard,
+                  { borderColor: isActive && online ? meta.borderColor : 'transparent' },
+                  !online && { opacity: 0.6 },
+                ]}
                 onPress={onPress}
                 disabled={busy || isSlider}
                 activeOpacity={isSlider ? 1 : 0.85}
               >
-                {isActive && <View style={[s.qaTopBar, { backgroundColor: meta.activeColor }]} />}
+                {isActive && online && <View style={[s.qaTopBar, { backgroundColor: meta.activeColor }]} />}
 
                 <Ionicons
                   name={isActive ? meta.iconActive : meta.icon}
                   size={28}
-                  color={isActive ? meta.activeColor : Colors.text.caption}
+                  color={isActive && online ? meta.activeColor : Colors.text.caption}
                 />
                 <Text style={s.qaName}>{device.name}</Text>
+                {lastDate && <Text style={s.qaLastTime}>{formatAge(lastDate)}</Text>}
 
                 <View style={s.qaFill} />
 
                 {isSlider ? (
                   <View style={s.qaSliderSection}>
-                    <Text style={[s.qaStatus, { color: isActive ? meta.activeColor : Colors.text.caption }]}>
-                      {isActive ? String(Math.round(numVal)) : 'OFF'}
+                    <Text style={[s.qaStatus, { color: online && isActive ? meta.activeColor : Colors.text.caption }]}>
+                      {online ? (isActive ? String(Math.round(numVal)) : 'OFF') : 'OFFLINE'}
                     </Text>
                     <HorizontalSlider
                       value={numVal}
-                      color={meta.activeColor}
+                      color={online ? meta.activeColor : Colors.text.caption}
                       onChange={v => handleSlider(device.feed_key, v)}
                     />
                   </View>
@@ -411,10 +443,10 @@ export default function HomeScreen({ navigation }) {
                       <ActivityIndicator size="small" color={meta.activeColor} />
                     ) : (
                       <>
-                        <Text style={[s.qaStatus, { color: isActive ? meta.activeColor : Colors.text.caption }]}>
-                          {statusLabel}
+                        <Text style={[s.qaStatus, { color: online && isActive ? meta.activeColor : Colors.text.caption }]}>
+                          {online ? statusLabel : 'OFFLINE'}
                         </Text>
-                        <Toggle value={isActive} color={meta.toggleColor} onPress={onPress} />
+                        <Toggle value={isActive} color={online ? meta.toggleColor : Colors.surface.elevated} onPress={onPress} />
                       </>
                     )}
                   </View>
@@ -588,4 +620,30 @@ const s = StyleSheet.create({
   actBorder: { borderTopWidth: 0.5, borderTopColor: Colors.surface.elevated },
   actText:   { flex: 1, color: Colors.text.body, fontSize: Typography.size.sm },
   actTime:   { color: Colors.text.caption, fontSize: Typography.size.xs },
+
+  sectionOfflineBanner: {
+    flexDirection:    'row',
+    alignItems:       'center',
+    gap:              Spacing.md,
+    backgroundColor:  Colors.surface.card,
+    borderRadius:     Radius.lg,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical:  Spacing.lg,
+    marginHorizontal: Spacing.xl,
+    marginBottom:     Spacing.md,
+  },
+  sectionOfflineText: { flex: 1, fontSize: Typography.size.sm, color: Colors.text.caption },
+
+  offlineChip: {
+    backgroundColor:   Colors.error + '22',
+    borderWidth:       1,
+    borderColor:       Colors.error + '88',
+    borderRadius:      Radius.full,
+    paddingHorizontal: 5,
+    paddingVertical:   1,
+  },
+  offlineChipText: { fontSize: 8, fontWeight: '700', color: Colors.error, letterSpacing: 0.5 },
+
+  envLastTime: { fontSize: 8, color: Colors.text.caption, textAlign: 'center' },
+  qaLastTime:  { fontSize: Typography.size.xs, color: Colors.text.caption, marginTop: 1 },
 });

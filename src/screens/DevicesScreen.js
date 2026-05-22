@@ -60,9 +60,17 @@ function toApiTime(date) {
 function formatAge(date) {
   if (!date || isNaN(date)) return '';
   const secs = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (secs < 60)   return `${secs}s ago`;
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  return `${Math.floor(secs / 3600)}h ago`;
+  if (secs < 60)    return `${secs}s ago`;
+  if (secs < 3600)  return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  return `${Math.floor(secs / 86400)}d ago`;
+}
+
+const ONLINE_MS = 5 * 60 * 1000;
+function isOnline(ts) {
+  if (!ts) return false;
+  const d = new Date(ts);
+  return !isNaN(d) && (Date.now() - d.getTime()) < ONLINE_MS;
 }
 
 function actIcon(type, value) {
@@ -358,81 +366,103 @@ export default function DevicesScreen({ navigation }) {
         })()}
 
         {/* ── Device list ────────────────────────────── */}
-        <View style={s.deviceList}>
-          {filteredDevices.map((device, i) => {
-            const key      = device.feed_key ?? device.key;
-            const meta     = TYPE_META[device.type] ?? TYPE_META.GENERIC;
-            const val      = states[key];
-            const busy     = !!cmdLoading[key];
-            const isSlider = device.type === 'LIGHT' || device.type === 'RGB';
-            const numVal   = parseFloat(val) || 0;
-
-            const numericOn = !isNaN(parseFloat(val)) && parseFloat(val) > 0;
-            const isActive  = meta.isDoor ? !parseBool(val) : numericOn || parseBool(val);
-
-            const statusLabel    = meta.isDoor ? (parseBool(val) ? 'OPEN' : 'LOCKED') : isActive ? 'ON' : 'OFF';
-            const badgeLabel     = isSlider ? (isActive ? String(Math.round(numVal)) : 'OFF') : statusLabel;
-            const badgeColor     = isActive ? Colors.primary.default : Colors.surface.elevated;
-            const badgeTextColor = isActive ? Colors.primary.default : Colors.text.caption;
-
-            return (
-              <View key={key} style={[s.deviceRow, i > 0 && s.deviceBorder]}>
-
-                {/* Icon box */}
-                <View style={[s.iconBox, {
-                  backgroundColor: isActive ? Colors.primary.darker + '55' : Colors.surface.elevated + '55',
-                }]}>
-                  <Ionicons
-                    name={meta.icon}
-                    size={22}
-                    color={isActive ? Colors.primary.default : Colors.text.caption}
-                  />
+        {(() => {
+          const onlineCount = filteredDevices.filter(d => isOnline(d.last_record_time)).length;
+          return (
+            <>
+              {onlineCount === 0 && filteredDevices.length > 0 && (
+                <View style={s.sectionOfflineBanner}>
+                  <Ionicons name="cloud-offline-outline" size={20} color={Colors.text.caption} />
+                  <Text style={s.sectionOfflineText}>All devices are offline — no data in the last 5 min</Text>
                 </View>
+              )}
+              <View style={s.deviceList}>
+                {filteredDevices.map((device, i) => {
+                  const key      = device.feed_key ?? device.key;
+                  const meta     = TYPE_META[device.type] ?? TYPE_META.GENERIC;
+                  const val      = states[key];
+                  const busy     = !!cmdLoading[key];
+                  const isSlider = device.type === 'LIGHT' || device.type === 'RGB';
+                  const numVal   = parseFloat(val) || 0;
+                  const online   = isOnline(device.last_record_time);
+                  const lastDate = device.last_record_time ? new Date(device.last_record_time) : null;
 
-                {/* Name */}
-                <View style={s.deviceInfo}>
-                  <Text style={s.deviceName}>{device.name ?? key}</Text>
-                  {isSlider && (
-                    <HorizontalSlider
-                      value={numVal}
-                      color={Colors.primary.default}
-                      onChange={v => handleSlider(key, v)}
-                      style={{ marginTop: 6 }}
-                    />
-                  )}
-                </View>
+                  const numericOn = !isNaN(parseFloat(val)) && parseFloat(val) > 0;
+                  const isActive  = meta.isDoor ? !parseBool(val) : numericOn || parseBool(val);
 
-                {/* Badge + control */}
-                <View style={s.deviceRight}>
-                  <View style={[s.badge, {
-                    backgroundColor: badgeColor + '22',
-                    borderColor:     badgeColor,
-                  }]}>
-                    <Text style={[s.badgeText, { color: badgeTextColor }]}>
-                      {badgeLabel}
-                    </Text>
-                  </View>
+                  const statusLabel    = meta.isDoor ? (parseBool(val) ? 'OPEN' : 'LOCKED') : isActive ? 'ON' : 'OFF';
+                  const badgeLabel     = online
+                    ? (isSlider ? (isActive ? String(Math.round(numVal)) : 'OFF') : statusLabel)
+                    : 'OFFLINE';
+                  const badgeColor     = online
+                    ? (isActive ? Colors.primary.default : Colors.surface.elevated)
+                    : Colors.error;
+                  const badgeTextColor = online
+                    ? (isActive ? Colors.primary.default : Colors.text.caption)
+                    : Colors.error;
 
-                  {busy ? (
-                    <ActivityIndicator size="small" color={Colors.primary.default} />
-                  ) : isSlider ? null : meta.isDoor ? (
-                    <Toggle
-                      value={isActive}
-                      color={Colors.success}
-                      onPress={() => handleDoor(key, parseBool(val) ? 'CLOSE' : 'OPEN')}
-                    />
-                  ) : (
-                    <Toggle
-                      value={isActive}
-                      color={Colors.success}
-                      onPress={() => handleToggle(key)}
-                    />
-                  )}
-                </View>
+                  return (
+                    <View key={key} style={[s.deviceRow, i > 0 && s.deviceBorder, !online && { opacity: 0.6 }]}>
+
+                      {/* Icon box */}
+                      <View style={[s.iconBox, {
+                        backgroundColor: isActive && online ? Colors.primary.darker + '55' : Colors.surface.elevated + '55',
+                      }]}>
+                        <Ionicons
+                          name={meta.icon}
+                          size={22}
+                          color={isActive && online ? Colors.primary.default : Colors.text.caption}
+                        />
+                      </View>
+
+                      {/* Name + last seen */}
+                      <View style={s.deviceInfo}>
+                        <Text style={s.deviceName}>{device.name ?? key}</Text>
+                        {lastDate && <Text style={s.deviceLastTime}>{formatAge(lastDate)}</Text>}
+                        {isSlider && (
+                          <HorizontalSlider
+                            value={numVal}
+                            color={online ? Colors.primary.default : Colors.text.caption}
+                            onChange={v => handleSlider(key, v)}
+                            style={{ marginTop: 6 }}
+                          />
+                        )}
+                      </View>
+
+                      {/* Badge + control */}
+                      <View style={s.deviceRight}>
+                        <View style={[s.badge, {
+                          backgroundColor: badgeColor + '22',
+                          borderColor:     badgeColor,
+                        }]}>
+                          <Text style={[s.badgeText, { color: badgeTextColor }]}>
+                            {badgeLabel}
+                          </Text>
+                        </View>
+
+                        {busy ? (
+                          <ActivityIndicator size="small" color={Colors.primary.default} />
+                        ) : isSlider ? null : meta.isDoor ? (
+                          <Toggle
+                            value={isActive}
+                            color={Colors.success}
+                            onPress={() => handleDoor(key, parseBool(val) ? 'CLOSE' : 'OPEN')}
+                          />
+                        ) : (
+                          <Toggle
+                            value={isActive}
+                            color={Colors.success}
+                            onPress={() => handleToggle(key)}
+                          />
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
-            );
-          })}
-        </View>
+            </>
+          );
+        })()}
 
         {/* ── Device Activities ──────────────────────── */}
         <View style={s.actSectionHeader}>
@@ -597,4 +627,18 @@ const s = StyleSheet.create({
   actTime:     { color: Colors.text.caption, fontSize: Typography.size.xs },
   actEmptyRow: { padding: Spacing.xl, alignItems: 'center' },
   actEmptyText:{ color: Colors.text.caption, fontSize: Typography.size.sm },
+
+  sectionOfflineBanner: {
+    flexDirection:    'row',
+    alignItems:       'center',
+    gap:              Spacing.md,
+    backgroundColor:  Colors.surface.card,
+    borderRadius:     Radius.lg,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical:  Spacing.lg,
+    marginHorizontal: Spacing.xl,
+    marginBottom:     Spacing.md,
+  },
+  sectionOfflineText: { flex: 1, fontSize: Typography.size.sm, color: Colors.text.caption },
+  deviceLastTime: { fontSize: Typography.size.xs, color: Colors.text.caption, marginTop: 2 },
 });

@@ -29,6 +29,24 @@ function formatDate() {
   });
 }
 
+const ONLINE_MS = 5 * 60 * 1000;
+function isOnline(ts) {
+  if (!ts) return false;
+  const d = new Date(ts);
+  return !isNaN(d) && (Date.now() - d.getTime()) < ONLINE_MS;
+}
+
+function formatAge(ts) {
+  if (!ts) return '';
+  const d   = new Date(ts);
+  if (isNaN(d)) return '';
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60)    return `${sec}s ago`;
+  if (sec < 3600)  return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  return `${Math.floor(sec / 86400)}d ago`;
+}
+
 function Toggle({ value, color, onPress, disabled }) {
   return (
     <TouchableOpacity
@@ -181,60 +199,76 @@ export default function SettingsScreen({ navigation }) {
         {loading ? (
           <ActivityIndicator color={Colors.primary.default} style={{ padding: Spacing.xl }} />
         ) : (
-          <View style={s.doorList}>
-            {doors.length === 0 ? (
-              <View style={s.emptyRow}>
-                <Text style={s.emptyText}>No door devices found.</Text>
+          <>
+            {doors.length > 0 && doors.every(d => !isOnline(d.last_record_time)) && (
+              <View style={s.sectionOfflineBanner}>
+                <Ionicons name="cloud-offline-outline" size={20} color={Colors.text.caption} />
+                <Text style={s.sectionOfflineText}>All doors are offline — no data in the last 5 min</Text>
               </View>
-            ) : (
-              doors.map((door, i) => {
-                const rawState  = (door.value ?? door.last_value ?? 'CLOSE').toUpperCase();
-                const ds        = doorStyleFor(rawState);
-                const isLocked  = rawState === 'LOCKED';
-                const isOpen    = rawState === 'OPEN';
-                const isToggling = togglingId === door.feed_key;
+            )}
+            <View style={s.doorList}>
+              {doors.length === 0 ? (
+                <View style={s.emptyRow}>
+                  <Text style={s.emptyText}>No door devices found.</Text>
+                </View>
+              ) : (
+                doors.map((door, i) => {
+                  const rawState   = (door.value ?? door.last_value ?? 'CLOSE').toUpperCase();
+                  const ds         = doorStyleFor(rawState);
+                  const isLocked   = rawState === 'LOCKED';
+                  const isOpen     = rawState === 'OPEN';
+                  const isToggling = togglingId === door.feed_key;
+                  const online     = isOnline(door.last_record_time);
 
-                return (
-                  <View
-                    key={door.feed_key}
-                    style={[s.doorRow, i > 0 && s.doorBorder, { borderLeftColor: ds.color + '55' }]}
-                  >
-                    <View style={[s.doorIconBox, { backgroundColor: ds.color + '22' }]}>
-                      <Ionicons name={ds.icon} size={22} color={ds.color} />
-                    </View>
-
-                    <View style={s.doorInfo}>
-                      <Text style={s.doorName}>{door.name ?? door.feed_key}</Text>
-                      {door.location
-                        ? <Text style={[s.doorLocation, { color: ds.color }]}>{door.location}</Text>
-                        : null
-                      }
-                    </View>
-
-                    <View style={s.doorRight}>
-                      <View style={[s.doorBadge, { backgroundColor: ds.color + '22', borderColor: ds.color }]}>
-                        <Text style={[s.doorBadgeText, { color: ds.color }]}>{ds.badge}</Text>
+                  return (
+                    <View
+                      key={door.feed_key}
+                      style={[s.doorRow, i > 0 && s.doorBorder, { borderLeftColor: ds.color + '55' }, !online && { opacity: 0.6 }]}
+                    >
+                      <View style={[s.doorIconBox, { backgroundColor: ds.color + '22' }]}>
+                        <Ionicons name={ds.icon} size={22} color={ds.color} />
                       </View>
 
-                      {/* OPEN: physically open — show warning, no toggle */}
-                      {isOpen ? (
-                        <Ionicons name="alert-circle-outline" size={22} color={Colors.warning} />
-                      ) : isToggling ? (
-                        <ActivityIndicator size="small" color={Colors.primary.default} />
-                      ) : (
-                        <Toggle
-                          value={isLocked}
-                          color={awayMode ? Colors.state.auto : Colors.success}
-                          onPress={() => !awayMode && handleToggleDoor(door)}
-                          disabled={awayMode || isToggling}
-                        />
-                      )}
+                      <View style={s.doorInfo}>
+                        <Text style={s.doorName}>{door.name ?? door.feed_key}</Text>
+                        {door.location && (
+                          <Text style={[s.doorLocation, { color: ds.color }]}>{door.location}</Text>
+                        )}
+                        {door.last_record_time && (
+                          <Text style={s.doorLastTime}>{formatAge(door.last_record_time)}</Text>
+                        )}
+                      </View>
+
+                      <View style={s.doorRight}>
+                        {!online && (
+                          <View style={s.offlineChip}>
+                            <Text style={s.offlineChipText}>OFFLINE</Text>
+                          </View>
+                        )}
+                        <View style={[s.doorBadge, { backgroundColor: ds.color + '22', borderColor: ds.color }]}>
+                          <Text style={[s.doorBadgeText, { color: ds.color }]}>{ds.badge}</Text>
+                        </View>
+
+                        {/* OPEN: physically open — show warning, no toggle */}
+                        {isOpen ? (
+                          <Ionicons name="alert-circle-outline" size={22} color={Colors.warning} />
+                        ) : isToggling ? (
+                          <ActivityIndicator size="small" color={Colors.primary.default} />
+                        ) : (
+                          <Toggle
+                            value={isLocked}
+                            color={awayMode ? Colors.state.auto : Colors.success}
+                            onPress={() => !awayMode && handleToggleDoor(door)}
+                            disabled={awayMode || isToggling}
+                          />
+                        )}
+                      </View>
                     </View>
-                  </View>
-                );
-              })
-            )}
-          </View>
+                  );
+                })
+              )}
+            </View>
+          </>
         )}
 
         {/* ── State legend ───────────────────────────── */}
@@ -366,4 +400,27 @@ const s = StyleSheet.create({
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendText: { fontSize: Typography.size.xs, color: Colors.text.caption },
+
+  sectionOfflineBanner: {
+    flexDirection:    'row',
+    alignItems:       'center',
+    gap:              Spacing.md,
+    backgroundColor:  Colors.surface.card,
+    borderRadius:     Radius.lg,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical:  Spacing.lg,
+  },
+  sectionOfflineText: { flex: 1, fontSize: Typography.size.sm, color: Colors.text.caption },
+
+  doorLastTime: { fontSize: Typography.size.xs, color: Colors.text.caption, marginTop: 2 },
+
+  offlineChip: {
+    backgroundColor:   Colors.error + '22',
+    borderWidth:       1,
+    borderColor:       Colors.error + '88',
+    borderRadius:      Radius.full,
+    paddingHorizontal: 6,
+    paddingVertical:   1,
+  },
+  offlineChipText: { fontSize: 9, fontWeight: '700', color: Colors.error, letterSpacing: 0.5 },
 });

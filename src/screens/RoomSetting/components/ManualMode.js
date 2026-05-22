@@ -35,6 +35,23 @@ const DEVICE_META = {
   // FAN giả lập qua type GENERIC với key chứa 'fan'
 };
 
+const ONLINE_MS = 5 * 60 * 1000;
+function isOnline(ts) {
+  if (!ts) return false;
+  const d = new Date(ts);
+  return !isNaN(d) && (Date.now() - d.getTime()) < ONLINE_MS;
+}
+function formatAge(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d)) return '';
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60)    return `${sec}s ago`;
+  if (sec < 3600)  return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  return `${Math.floor(sec / 86400)}d ago`;
+}
+
 function parseBool(val) {
   const s = String(val ?? '').toUpperCase();
   return s === 'ON' || s === '1' || s === 'TRUE' || s === 'OPEN';
@@ -217,10 +234,12 @@ export default function ManualMode({ devices = [] }) {
   });
   const [saving, setSaving] = useState(false);
 
-  const device   = devices[selectedIdx];
-  const deviceKey = device ? (device.feed_key ?? device.key) : null;
-  const currVal  = device ? (deviceValues[deviceKey] ?? (isSliderDevice(device.type) ? 50 : 'OFF')) : 50;
-  const meta     = device ? (DEVICE_META[device.type] ?? DEVICE_META.GENERIC) : DEVICE_META.GENERIC;
+  const device        = devices[selectedIdx];
+  const deviceKey     = device ? (device.feed_key ?? device.key) : null;
+  const currVal       = device ? (deviceValues[deviceKey] ?? (isSliderDevice(device.type) ? 50 : 'OFF')) : 50;
+  const meta          = device ? (DEVICE_META[device.type] ?? DEVICE_META.GENERIC) : DEVICE_META.GENERIC;
+  const selectedOnline = device ? isOnline(device.last_record_time) : false;
+  const allOffline    = devices.length > 0 && devices.every(d => !isOnline(d.last_record_time));
 
   const handleLevelChange = useCallback((val) => {
     if (!deviceKey) return;
@@ -261,12 +280,20 @@ export default function ManualMode({ devices = [] }) {
 
   return (
     <View style={s.container}>
+      {allOffline && (
+        <View style={s.offlineBanner}>
+          <Ionicons name="cloud-offline-outline" size={18} color={Colors.text.caption} />
+          <Text style={s.offlineBannerText}>All devices are offline — data may be outdated</Text>
+        </View>
+      )}
+
       {/* ── Device Tabs ──────────────────────────────── */}
       <View style={s.tabsRow}>
         {devices.map((d, idx) => {
           const m = DEVICE_META[d.type] ?? DEVICE_META.GENERIC;
           const active = idx === selectedIdx;
           const dk = d.feed_key ?? d.key;
+          const tabOnline = isOnline(d.last_record_time);
           return (
             <TouchableOpacity
               key={dk}
@@ -277,7 +304,7 @@ export default function ManualMode({ devices = [] }) {
               <Ionicons
                 name={m.icon}
                 size={18}
-                color={active ? Colors.text.onGold : Colors.text.subtitle}
+                color={active ? Colors.text.onGold : tabOnline ? Colors.text.subtitle : Colors.error + 'AA'}
               />
               {active && (
                 <Text style={s.tabLabel} numberOfLines={1}>
@@ -292,13 +319,19 @@ export default function ManualMode({ devices = [] }) {
       {/* ── Device Image placeholder ─────────────────── */}
       <View style={s.imageArea}>
         <View style={s.imagePlaceholder}>
-          <Ionicons name={meta.icon} size={72} color={Colors.primary.default} />
+          <Ionicons name={meta.icon} size={72} color={selectedOnline ? Colors.primary.default : Colors.text.caption} />
           <Text style={s.deviceName}>{device?.name ?? deviceKey}</Text>
+          {device?.last_record_time && (
+            <Text style={s.deviceLastTime}>{formatAge(device.last_record_time)}</Text>
+          )}
+          {!selectedOnline && (
+            <View style={s.offlineChip}><Text style={s.offlineChipText}>OFFLINE</Text></View>
+          )}
         </View>
       </View>
 
       {/* ── Slider / Toggle ──────────────────────────── */}
-      <View style={s.sliderArea}>
+      <View style={[s.sliderArea, !selectedOnline && { opacity: 0.55 }]}>
         {isSliderDevice(device?.type) ? (
           <>
             <Text style={s.sliderValue}>{Math.round(currVal)}</Text>
@@ -405,4 +438,19 @@ const s = StyleSheet.create({
     fontSize: Typography.size.md,
     color: Colors.text.caption,
   },
+
+  offlineBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    backgroundColor: Colors.surface.card, borderRadius: Radius.md,
+    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
+    borderWidth: 1, borderColor: Colors.surface.elevated,
+  },
+  offlineBannerText: { flex: 1, fontSize: Typography.size.sm, color: Colors.text.caption },
+  deviceLastTime: { fontSize: Typography.size.xs, color: Colors.text.caption },
+  offlineChip: {
+    backgroundColor: Colors.error + '22',
+    borderWidth: 1, borderColor: Colors.error + '88',
+    borderRadius: Radius.full, paddingHorizontal: 6, paddingVertical: 1,
+  },
+  offlineChipText: { fontSize: 9, fontWeight: '700', color: Colors.error, letterSpacing: 0.5 },
 });

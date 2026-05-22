@@ -46,6 +46,23 @@ function fmtTime(date) {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
+const ONLINE_MS = 5 * 60 * 1000;
+function isOnline(ts) {
+  if (!ts) return false;
+  const d = new Date(ts);
+  return !isNaN(d) && (Date.now() - d.getTime()) < ONLINE_MS;
+}
+function formatAge(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d)) return '';
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60)    return `${sec}s ago`;
+  if (sec < 3600)  return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  return `${Math.floor(sec / 86400)}d ago`;
+}
+
 // ── Toggle ────────────────────────────────────────────────────────
 function Toggle({ value, onPress, color = Colors.success, disabled }) {
   return (
@@ -114,7 +131,8 @@ function DoorAutoLockCard({ doorDevices, config, onSave, saving }) {
   const [enabled,  setEnabled]  = useState(config.door_auto_lock ?? false);
   const [delaySec, setDelaySec] = useState(config.door_auto_lock_delay_sec ?? 120);
   const delayMin = Math.max(1, Math.round(delaySec / 60));
-  const names = doorDevices.map(d => d.name ?? d.feed_key ?? d.key).join(', ');
+  const names      = doorDevices.map(d => d.name ?? d.feed_key ?? d.key).join(', ');
+  const anyOffline = doorDevices.some(d => !isOnline(d.last_record_time));
 
   return (
     <View style={dl.card}>
@@ -125,6 +143,12 @@ function DoorAutoLockCard({ doorDevices, config, onSave, saving }) {
         <View style={{ flex: 1 }}>
           <Text style={dl.title}>Door Auto-Lock</Text>
           <Text style={dl.sub}>{names}</Text>
+          {anyOffline && (
+            <View style={dl.offlineNote}>
+              <Ionicons name="cloud-offline-outline" size={11} color={Colors.error + 'CC'} />
+              <Text style={dl.offlineNoteTxt}>Door state may be outdated</Text>
+            </View>
+          )}
         </View>
       </View>
 
@@ -233,6 +257,9 @@ const dl = StyleSheet.create({
     alignItems: 'center',
   },
   saveTxt: { fontSize: Typography.size.sm, fontWeight: Typography.weight.bold, color: Colors.text.onGold },
+
+  offlineNote:    { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
+  offlineNoteTxt: { fontSize: 10, color: Colors.error + 'CC' },
 });
 
 // ── Rule Item ─────────────────────────────────────────────────────
@@ -421,7 +448,15 @@ function DeviceRuleSection({ device, rules, onAdd, onToggle, onDelete }) {
         <View style={[dr.icon, { backgroundColor: Colors.primary.default + '22' }]}>
           <Ionicons name={icon} size={16} color={Colors.primary.default} />
         </View>
-        <Text style={dr.name}>{device.name ?? feedKey}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[dr.name, { flex: undefined }]}>{device.name ?? feedKey}</Text>
+          {device.last_record_time && (
+            <Text style={dr.deviceTime}>{formatAge(device.last_record_time)}</Text>
+          )}
+        </View>
+        {!isOnline(device.last_record_time) && (
+          <View style={dr.offlineChip}><Text style={dr.offlineChipText}>OFFLINE</Text></View>
+        )}
         <Text style={dr.type}>{device.type}</Text>
       </View>
 
@@ -473,6 +508,14 @@ const dr = StyleSheet.create({
   divider: { height: 0.5, backgroundColor: Colors.surface.elevated, marginVertical: 2 },
   addBtn:  { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, paddingVertical: Spacing.xs },
   addTxt:  { fontSize: Typography.size.sm, color: Colors.primary.default, fontWeight: Typography.weight.medium },
+
+  deviceTime: { fontSize: 10, color: Colors.text.caption, marginTop: 1 },
+  offlineChip: {
+    backgroundColor: Colors.error + '22',
+    borderWidth: 1, borderColor: Colors.error + '88',
+    borderRadius: Radius.full, paddingHorizontal: 5, paddingVertical: 1,
+  },
+  offlineChipText: { fontSize: 8, fontWeight: '700', color: Colors.error, letterSpacing: 0.5 },
 });
 
 // ── Main Component ────────────────────────────────────────────────
@@ -609,6 +652,13 @@ export default function AutomaticMode({ devices = [] }) {
         </Text>
       </View>
 
+      {devices.length > 0 && devices.every(d => !isOnline(d.last_record_time)) && (
+        <View style={s.allOfflineBanner}>
+          <Ionicons name="cloud-offline-outline" size={18} color={Colors.text.caption} />
+          <Text style={s.allOfflineText}>All devices are offline — data may be outdated</Text>
+        </View>
+      )}
+
       {/* Motion sensors — always on, automation doesn't apply */}
       {motionDevices.length > 0 && (
         <View style={s.motionCard}>
@@ -620,9 +670,14 @@ export default function AutomaticMode({ devices = [] }) {
             Always ON — automation does not control sensors.
           </Text>
           {motionDevices.map(d => (
-            <Text key={d.feed_key ?? d.key} style={s.motionDevice}>
-              · {d.name ?? d.feed_key ?? d.key}
-            </Text>
+            <View key={d.feed_key ?? d.key} style={s.motionDeviceRow}>
+              <Text style={s.motionDevice}>· {d.name ?? d.feed_key ?? d.key}</Text>
+              {!isOnline(d.last_record_time) && (
+                <Text style={s.motionOfflineTime}>
+                  {d.last_record_time ? formatAge(d.last_record_time) : 'No data'} · OFFLINE
+                </Text>
+              )}
+            </View>
           ))}
         </View>
       )}
@@ -686,4 +741,14 @@ const s = StyleSheet.create({
 
   empty:    { padding: Spacing.xl, alignItems: 'center' },
   emptyTxt: { fontSize: Typography.size.md, color: Colors.text.caption },
+
+  allOfflineBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    backgroundColor: Colors.surface.card, borderRadius: Radius.lg,
+    paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg,
+    borderWidth: 1, borderColor: Colors.surface.elevated,
+  },
+  allOfflineText:  { flex: 1, fontSize: Typography.size.sm, color: Colors.text.caption },
+  motionDeviceRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  motionOfflineTime: { fontSize: Typography.size.xs, color: Colors.error + 'CC', fontWeight: Typography.weight.semibold },
 });
