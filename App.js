@@ -14,7 +14,10 @@ import DevicesScreen         from './src/screens/DevicesScreen';
 import AlertScreen           from './src/screens/AlertScreen';
 import ChartScreen           from './src/screens/ChartScreen';
 import SettingsScreen        from './src/screens/SettingsScreen';
-import AccountSettingsScreen from './src/screens/AccountSettingsScreen';
+import AccountSettingsScreen  from './src/screens/AccountSettingsScreen';
+import ChangePasswordScreen  from './src/screens/ChangePasswordScreen';
+import FamilyMemberScreen    from './src/screens/FamilyMemberScreen';
+import RoomDeviceScreen      from './src/screens/RoomDeviceScreen';
 import RoomSettingScreen     from './src/screens/RoomSetting/RoomSettingScreen';
 import { Colors, Typography } from './src/theme';
 
@@ -99,6 +102,21 @@ function RootNavigator() {
       <Stack.Screen
         name="AccountSettings"
         component={AccountSettingsScreen}
+        options={{ presentation: 'card' }}
+      />
+      <Stack.Screen
+        name="ChangePassword"
+        component={ChangePasswordScreen}
+        options={{ presentation: 'card' }}
+      />
+      <Stack.Screen
+        name="FamilyMember"
+        component={FamilyMemberScreen}
+        options={{ presentation: 'card' }}
+      />
+      <Stack.Screen
+        name="RoomDevice"
+        component={RoomDeviceScreen}
         options={{ presentation: 'card' }}
       />
     </Stack.Navigator>

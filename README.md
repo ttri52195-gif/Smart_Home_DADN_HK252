@@ -55,6 +55,9 @@ smarthouse-app/
         ├── AlertScreen.js        # Server-generated alerts with time/type filters
         ├── SettingsScreen.js     # App settings
         ├── AccountSettingsScreen.js
+        ├── ChangePasswordScreen.js   # Change password with strength validation
+        ├── FamilyMemberScreen.js     # Manage / view family members
+        ├── RoomDeviceScreen.js       # Sensors & devices grouped by location
         └── RoomSetting/
             └── RoomSettingScreen.js
 ```
@@ -104,8 +107,27 @@ smarthouse-app/
 - Per-card dismiss (local state; reloads on refresh)
 - Pull-to-refresh
 
-### Settings / Account Settings / Room Settings
-- Account settings navigable from the avatar button on Home and Devices screens
+### Account Settings
+- Profile card showing username and email
+- Notification toggles (device, email)
+- Security: Change Password, Two-Factor Authentication toggle, Manage Access Code
+- Household: Family Member, Room & Device Info
+- Log out button
+
+### Change Password
+- Current password, new password, confirm password — each with eye toggle
+- Live strength checklist (8+ chars, uppercase, lowercase, number, special char)
+- Confirm mismatch error shown inline; save disabled until all rules pass
+- Inline success / error banner on submit
+
+### Family Member
+- **Homeowner view**: list of all users with role badges; add new member form (username + password with strength rules); delete non-owner members via confirmation dialog
+- **Member view**: read-only list with role badges
+
+### Room & Device Info
+- Sensors and devices grouped by `location` field (ungrouped items shown under "Unassigned")
+- **Homeowner view**: inline edit panel per row to rename and reassign location; changes saved via `PATCH` immediately and list re-groups
+- **Member view**: read-only list with a "view only" hint
 
 ---
 
@@ -218,11 +240,17 @@ The JWT token is passed as `Authorization: Bearer <token>` on all authenticated 
 | Screen | Method | Endpoint | Auth |
 |--------|--------|----------|------|
 | Login | POST | `/api/auth/login` | — |
-| Register | POST | `/api/auth/register` | — |
+| Register / Add Member | POST | `/api/auth/register` | — |
+| Change Password | PUT | `/api/auth/change-password` | Bearer |
+| Family Member | GET | `/api/users` | Bearer |
+| Family Member | DELETE | `/api/users/{id}` | Bearer |
+| Account Settings | GET | `/get-user-by-username?username=` | — |
 | Home, Devices, Charts | GET | `/api/sensors` | — |
 | Home, Devices | GET | `/api/devices` | — |
 | Home, Devices | POST | `/api/devices/{id}/set_state` | Bearer |
 | Devices | GET | `/api/devices/{id}/get_state` | `auth_token` query |
+| Room & Device Info | PATCH | `/api/devices/{feedKey}` | Bearer |
+| Room & Device Info | PATCH | `/api/sensors/{feedKey}` | Bearer |
 | Charts | GET | `/api/sensor-data` | Bearer |
 | Home, Devices | GET | `/api/device-data` | Bearer |
 | Alerts | GET | `/api/alerts/list` | — |
@@ -285,6 +313,14 @@ The JWT token is passed as `Authorization: Bearer <token>` on all authenticated 
 ---
 
 ## Changelog
+
+### 2026-05-22 (latest)
+- **ChangePasswordScreen** (new): current password + new password + confirm password inputs, each with eye toggle. Live strength-rule checklist (8+ chars, uppercase, lowercase, number, special char) shown as user types. Confirm mismatch error shown inline. Save button disabled until all rules pass and passwords match. Inline success/error banner. Navigated from "Change Password" in Account Settings.
+- **FamilyMemberScreen** (new): homeowner sees full member list with role badges ("Home Owner" / "Member") and can add new accounts (username + password with strength rules) or delete non-owner members via a confirmation dialog (`DELETE /api/users/{id}`). Family member role sees view-only list. Role detection uses `member.role === "homeowner"` to match real API shape.
+- **RoomDeviceScreen** (new): sensors and devices fetched in parallel and grouped by `location` field (null/missing → "Unassigned", sorted last). Homeowner gets an inline edit panel per row to rename the device/sensor and reassign its location — changes are saved via `PATCH /api/devices/{feedKey}` or `PATCH /api/sensors/{feedKey}` and reflected immediately by re-grouping the list. Family member sees view-only list with a hint banner.
+- **AccountSettingsScreen**: "Change Password" row now navigates to `ChangePasswordScreen`; "Family Member" row navigates to `FamilyMemberScreen`; replaced duplicate "Two-Factor Authentication" in HOUSEHOLD section with "Room & Device Info" navigating to `RoomDeviceScreen`.
+- **api.js**: added `changePassword` (`PUT /api/auth/change-password`, body includes `confirm_new_password`); added `createMember` (`POST /api/auth/register`); added `deleteMember` (`DELETE /api/users/{id}`); added `updateDevice` (`PATCH /api/devices/{feedKey}`); added `updateSensor` (`PATCH /api/sensors/{feedKey}`); fixed `listUsers` to unwrap `res?.users ?? res?.data ?? []`.
+- **App.js**: registered `ChangePasswordScreen`, `FamilyMemberScreen`, and `RoomDeviceScreen` in the stack navigator.
 
 ### 2026-05-22
 - **HomeScreen + DevicesScreen**: LIGHT and RGB devices now use a horizontal drag slider (0–100) instead of a toggle. Slider has a white thumb with colored border that tracks the fill edge using CSS percentage positioning + `translateX`. Value label shows the numeric level or "OFF". Card press is disabled for slider devices to avoid gesture conflicts.

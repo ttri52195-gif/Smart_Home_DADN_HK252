@@ -60,7 +60,6 @@ export default function AccountSettingsScreen({ navigation }) {
   const [deviceNotif, setDeviceNotif] = useState(true);
   const [emailNotif,  setEmailNotif]  = useState(true);
   const [twoFAcc,     setTwoFAcc]     = useState(true);
-  const [twoFHouse,   setTwoFHouse]   = useState(true);
 
   const displayName = user?.username ?? 'Nguyen Van Minh';
   const email       = user?.email    ?? 'minh.nguyen@example.com';
@@ -122,10 +121,12 @@ export default function AccountSettingsScreen({ navigation }) {
         {/* ── Security ───────────────────────────────── */}
         <Text style={s.sectionLabel}>SECURITY</Text>
         <View style={s.section}>
-          <SettingRow
-            icon="shield-outline"
-            label="Change Password"
-          />
+          <TouchableOpacity onPress={() => navigation.navigate('ChangePassword')}>
+            <SettingRow
+              icon="shield-outline"
+              label="Change Password"
+            />
+          </TouchableOpacity>
           <View style={s.divider} />
           <SettingRow
             icon="lock-closed-outline"
@@ -143,18 +144,19 @@ export default function AccountSettingsScreen({ navigation }) {
         {/* ── Household ──────────────────────────────── */}
         <Text style={s.sectionLabel}>HOUSEHOLD</Text>
         <View style={s.section}>
-          <SettingRow
-            icon="people-outline"
-            label="Family Member"
-            value="2 members"
-          />
+          <TouchableOpacity onPress={() => navigation.navigate('FamilyMember')}>
+            <SettingRow
+              icon="people-outline"
+              label="Family Member"
+            />
+          </TouchableOpacity>
           <View style={s.divider} />
-          <SettingRow
-            icon="lock-closed-outline"
-            label="Two-Factor Authentication"
-            toggleValue={twoFHouse}
-            onToggle={() => setTwoFHouse(v => !v)}
-          />
+          <TouchableOpacity onPress={() => navigation.navigate('RoomDevice')}>
+            <SettingRow
+              icon="home-outline"
+              label="Room &amp; Device Info"
+            />
+          </TouchableOpacity>
         </View>
 
         {/* ── Log out ────────────────────────────────── */}

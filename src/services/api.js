@@ -13,7 +13,7 @@ export const DEV_MODE = false;
 //   iOS Simulator  → 'http://localhost:8001'
 //   Android Emu    → 'http://10.0.2.2:8001'
 //   Physical phone → 'http://<your-lan-ip>:8001'
-export const API_BASE_URL = 'http://192.168.69.104:8001';
+export const API_BASE_URL = 'http://192.168.1.109:8001';
 
 // ── Internal fetch helper ─────────────────────────────────────────────────────
 // The backend wraps every success as { success: true, data: <payload> }.
@@ -69,15 +69,51 @@ export async function register(username, password, is_house_owner = false) {
   });
 }
 
+export async function changePassword(token, currentPassword, newPassword) {
+  if (DEV_MODE) return { message: 'Password changed successfully' };
+  return request('/api/auth/change-password', {
+    method: 'PUT',
+    token,
+    body: {
+      current_password:    currentPassword,
+      new_password:        newPassword,
+      confirm_new_password: newPassword,
+    },
+  });
+}
+
 // ── Users ─────────────────────────────────────────────────────────────────────
 export async function listUsers(token) {
-  if (DEV_MODE) return [{ username: 'admin', is_house_owner: true }];
-  return request('/api/users', { token });
+  if (DEV_MODE) return [
+    { id: 1, username: 'dev',   role: 'homeowner' },
+    { id: 2, username: 'alice', role: 'member'    },
+    { id: 3, username: 'bob',   role: 'member'    },
+  ];
+  const res = await request('/api/users', { token });
+  return Array.isArray(res) ? res : (res?.users ?? res?.data ?? []);
 }
 
 export async function getUserByUsername(username) {
-  if (DEV_MODE) return { username, is_house_owner: username === 'admin' };
+  if (DEV_MODE) return { username, is_house_owner: username === 'dev' || username === 'admin' };
   return request('/get-user-by-username', { queryParams: { username } });
+}
+
+// Creates a new family member account via the shared register endpoint.
+export async function createMember(token, username, password) {
+  if (DEV_MODE) return { message: 'Member created successfully' };
+  return request('/api/auth/register', {
+    method: 'POST',
+    token,
+    body: { username, password },
+  });
+}
+
+export async function deleteMember(token, userId) {
+  if (DEV_MODE) return { message: 'Member deleted successfully' };
+  return request(`/api/users/${userId}`, {
+    method: 'DELETE',
+    token,
+  });
 }
 
 // ── Sensors ───────────────────────────────────────────────────────────────────
@@ -137,6 +173,16 @@ export async function getDeviceActivities(token, feedKey, startTime, endTime) {
 export async function listDevices() {
   if (DEV_MODE) return MOCK_DEVICES;
   return request('/api/devices');
+}
+
+export async function updateDevice(token, feedKey, data) {
+  if (DEV_MODE) return { message: 'ok' };
+  return request(`/api/devices/${feedKey}`, { method: 'PATCH', token, body: data });
+}
+
+export async function updateSensor(token, feedKey, data) {
+  if (DEV_MODE) return { message: 'ok' };
+  return request(`/api/sensors/${feedKey}`, { method: 'PATCH', token, body: data });
 }
 
 // Conflict fixed: was POST with body — actual API is GET with auth_token as query param.
