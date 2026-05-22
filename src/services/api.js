@@ -30,6 +30,8 @@ async function request(path, { token, body, method = 'GET', queryParams } = {}) 
     url = `${url}?${qs}`;
   }
 
+  console.log('[API →]', method, path, body ?? queryParams ?? '');
+
   const res = await fetch(url, {
     method,
     headers,
@@ -38,6 +40,7 @@ async function request(path, { token, body, method = 'GET', queryParams } = {}) 
 
   if (!res.ok) {
     const text = await res.text();
+    console.warn('[API ✗]', method, path, res.status, text);
     throw new Error(`${res.status}: ${text}`);
   }
 
@@ -46,8 +49,8 @@ async function request(path, { token, body, method = 'GET', queryParams } = {}) 
   const json = await res.json();
   const result = json?.success !== undefined && 'data' in json ? json.data : json;
 
-  console.log('[API]', method, path, result);   // log API's response
-  return json?.success !== undefined && 'data' in json ? json.data : json;
+  console.log('[API ✓]', method, path, result);
+  return result;
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -255,8 +258,53 @@ export async function listAlerts(since = null) {
 }
 
 // ── System ────────────────────────────────────────────────────────────────────
-// Stub endpoint — backend does not yet return real data.
 export async function getSystemMode(token) {
-  if (DEV_MODE) return { mode: 'home' };
+  if (DEV_MODE) return { home: true, away: false, sleep: false, automation: false };
   return request('/api/system/mode', { token });
+}
+
+// ── Modes ─────────────────────────────────────────────────────────────────────
+export async function getAwayMode(token) {
+  if (DEV_MODE) return { enabled: false };
+  const res = await request('/api/modes/away', { token });
+  // Backend returns { away_mode: bool }, normalize to { enabled: bool }
+  return { enabled: res?.away_mode ?? false };
+}
+
+export async function setAwayMode(token, enabled) {
+  if (DEV_MODE) return { enabled };
+  return request('/api/modes/away', { method: 'PUT', token, body: { enabled } });
+}
+
+export async function getAutomationMode(token) {
+  if (DEV_MODE) return { enabled: false, door_auto_lock: false, door_auto_lock_delay_sec: 120 };
+  return request('/api/modes/automation', { token });
+}
+
+export async function setAutomationMode(token, data) {
+  if (DEV_MODE) return data;
+  return request('/api/modes/automation', { method: 'PUT', token, body: data });
+}
+
+// ── Automation Rules ──────────────────────────────────────────────────────────
+// Rule shape: { id, feed_key, time_of_day (HH:MM), days_of_week (comma-sep), value, enabled }
+export async function listAutomationRules(token, feedKey = null) {
+  if (DEV_MODE) return [];
+  const queryParams = feedKey ? { feed_key: feedKey } : undefined;
+  return request('/api/automation/rules', { token, queryParams });
+}
+
+export async function createAutomationRule(token, data) {
+  if (DEV_MODE) return { id: Date.now(), ...data };
+  return request('/api/automation/rules', { method: 'POST', token, body: data });
+}
+
+export async function updateAutomationRule(token, id, data) {
+  if (DEV_MODE) return { id, ...data };
+  return request(`/api/automation/rules/${id}`, { method: 'PUT', token, body: data });
+}
+
+export async function deleteAutomationRule(token, id) {
+  if (DEV_MODE) return { message: 'ok' };
+  return request(`/api/automation/rules/${id}`, { method: 'DELETE', token });
 }

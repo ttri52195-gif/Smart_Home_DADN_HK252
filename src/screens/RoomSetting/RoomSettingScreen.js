@@ -32,7 +32,6 @@ import ScheduleMode from './components/Schedulemode';
 const MODES = [
   { key: 'manual', label: 'Manual', icon: 'hand-left-outline' },
   { key: 'automatic', label: 'Automatic', icon: 'flash-outline' },
-  { key: 'schedule', label: 'Schedule', icon: 'time-outline' },
 ];
 
 // ── Component ─────────────────────────────────────────────────────

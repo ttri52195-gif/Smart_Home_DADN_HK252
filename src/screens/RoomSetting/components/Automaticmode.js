@@ -1,415 +1,689 @@
-/**
- * components/AutomaticMode.js
- *
- * Chế độ Automatic: chọn thiết bị → thiết lập điều kiện sensor
- * (ví dụ: bật đèn khi độ sáng < 30, tắt quạt khi nhiệt độ < 25).
- *
- * Gọi BE: setting_profiles (temp/gas thresholds) hoặc có thể mở rộng
- * qua endpoint riêng. Hiện tại dùng local state + mock save.
- */
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
+  View, Text, StyleSheet, TouchableOpacity, TextInput,
+  ActivityIndicator, Alert, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Typography, Spacing, Radius } from '../../../theme';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuth } from '../../../context/AuthContext';
-import { setDeviceState } from '../../../services/api';
+import {
+  getAutomationMode, setAutomationMode,
+  listAutomationRules, createAutomationRule,
+  updateAutomationRule, deleteAutomationRule,
+} from '../../../services/api';
+import { Colors, Typography, Spacing, Radius } from '../../../theme';
 
-// ── Sensor options ────────────────────────────────────────────────
-const SENSOR_OPTIONS = [
-  {
-    key: 'temperature',
-    label: 'Temperature',
-    unit: '°C',
-    icon: 'thermometer-outline',
-    color: Colors.data.temperature,
-  },
-  {
-    key: 'humidity',
-    label: 'Humidity',
-    unit: '%',
-    icon: 'water-outline',
-    color: Colors.data.humidity,
-  },
-  {
-    key: 'gas',
-    label: 'Gas',
-    unit: '',
-    icon: 'warning-outline',
-    color: Colors.data.gas,
-  },
-  {
-    key: 'themis',
-    label: 'Light',
-    unit: 'lx',
-    icon: 'sunny-outline',
-    color: Colors.data.light,
-  },
-];
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const CONDITION_OPS = [
-  { key: '>', label: '>' },
-  { key: '<', label: '<' },
-  { key: '>=', label: '≥' },
-  { key: '<=', label: '≤' },
-];
+const DEVICE_ICON = {
+  LIGHT:  'bulb-outline',
+  DIMMER: 'sunny-outline',
+  RGB:    'color-palette-outline',
+  DOOR:   'lock-closed-outline',
+  MOTION: 'radio-outline',
+};
 
-const ACTIONS = [
-  { key: 'ON', label: 'Turn ON' },
-  { key: 'OFF', label: 'Turn OFF' },
-];
-
-// ── Rule card ─────────────────────────────────────────────────────
-function RuleCard({ rule, devices, onRemove, onChange }) {
-  const device = devices.find((d) => d.key === rule.deviceKey);
-  const sensor = SENSOR_OPTIONS.find((s) => s.key === rule.sensorKey);
-
-  return (
-    <View style={rc.card}>
-      {/* Remove */}
-      <TouchableOpacity style={rc.removeBtn} onPress={onRemove}>
-        <Ionicons name="close-circle" size={20} color={Colors.error} />
-      </TouchableOpacity>
-
-      {/* Device select */}
-      <Text style={rc.rowLabel}>Device</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ marginBottom: Spacing.md }}
-      >
-        <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
-          {devices.map((d) => (
-            <TouchableOpacity
-              key={d.key}
-              style={[rc.chip, rule.deviceKey === d.key && rc.chipActive]}
-              onPress={() => onChange({ ...rule, deviceKey: d.key })}
-            >
-              <Text
-                style={[
-                  rc.chipText,
-                  rule.deviceKey === d.key && rc.chipTextActive,
-                ]}
-              >
-                {d.name ?? d.key}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </ScrollView>
-
-      {/* Sensor select */}
-      <Text style={rc.rowLabel}>When sensor</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ marginBottom: Spacing.md }}
-      >
-        <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
-          {SENSOR_OPTIONS.map((s) => (
-            <TouchableOpacity
-              key={s.key}
-              style={[rc.chip, rule.sensorKey === s.key && rc.chipActive]}
-              onPress={() => onChange({ ...rule, sensorKey: s.key })}
-            >
-              <Ionicons
-                name={s.icon}
-                size={14}
-                color={
-                  rule.sensorKey === s.key
-                    ? Colors.text.onGold
-                    : Colors.text.body
-                }
-              />
-              <Text
-                style={[
-                  rc.chipText,
-                  rule.sensorKey === s.key && rc.chipTextActive,
-                ]}
-              >
-                {s.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </ScrollView>
-
-      {/* Condition + threshold */}
-      <Text style={rc.rowLabel}>Condition</Text>
-      <View style={rc.condRow}>
-        {CONDITION_OPS.map((op) => (
-          <TouchableOpacity
-            key={op.key}
-            style={[rc.opBtn, rule.op === op.key && rc.opBtnActive]}
-            onPress={() => onChange({ ...rule, op: op.key })}
-          >
-            <Text style={[rc.opText, rule.op === op.key && rc.opTextActive]}>
-              {op.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-        <TextInput
-          style={rc.thresholdInput}
-          keyboardType="numeric"
-          value={String(rule.threshold)}
-          onChangeText={(v) => onChange({ ...rule, threshold: v })}
-          placeholderTextColor={Colors.text.caption}
-          placeholder="value"
-        />
-        {sensor && <Text style={rc.unitText}>{sensor.unit}</Text>}
-      </View>
-
-      {/* Action */}
-      <Text style={rc.rowLabel}>Then action</Text>
-      <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
-        {ACTIONS.map((a) => (
-          <TouchableOpacity
-            key={a.key}
-            style={[rc.chip, rule.action === a.key && rc.chipActive]}
-            onPress={() => onChange({ ...rule, action: a.key })}
-          >
-            <Text
-              style={[rc.chipText, rule.action === a.key && rc.chipTextActive]}
-            >
-              {a.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-    </View>
-  );
+// Backend returns days_of_week as either a comma-string ("Mon,Tue") or an array (["MON","TUE"]).
+// Normalise to title-case array either way.
+function parseDays(val) {
+  if (!val) return [];
+  const raw = Array.isArray(val) ? val : val.split(',');
+  return raw
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(d => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase());
 }
 
-const rc = StyleSheet.create({
-  card: {
-    backgroundColor: Colors.surface.card,
-    borderRadius: Radius.lg,
-    padding: Spacing.xl,
-    borderWidth: 1,
-    borderColor: Colors.surface.elevated,
-    position: 'relative',
-  },
-  removeBtn: {
-    position: 'absolute',
-    top: Spacing.md,
-    right: Spacing.md,
-    zIndex: 1,
-  },
-  rowLabel: {
-    fontSize: Typography.size.sm,
-    color: Colors.text.caption,
-    fontWeight: Typography.weight.medium,
-    marginBottom: Spacing.xs,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.surface.elevated,
-  },
-  chipActive: { backgroundColor: Colors.primary.default },
-  chipText: { fontSize: Typography.size.sm, color: Colors.text.body },
-  chipTextActive: {
-    color: Colors.text.onGold,
-    fontWeight: Typography.weight.semibold,
-  },
+function formatDays(val) {
+  const days = parseDays(val);
+  if (days.length === 7) return 'Every day';
+  if (days.length === 5 && !days.includes('Sat') && !days.includes('Sun')) return 'Weekdays';
+  if (days.length === 0) return '—';
+  return days.join(' · ');
+}
 
-  condRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    flexWrap: 'wrap',
-    marginBottom: Spacing.md,
-  },
-  opBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.surface.elevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  opBtnActive: { backgroundColor: Colors.primary.default },
-  opText: { fontSize: Typography.size.md, color: Colors.text.body },
-  opTextActive: {
-    color: Colors.text.onGold,
-    fontWeight: Typography.weight.bold,
-  },
-  thresholdInput: {
-    width: 70,
-    height: 36,
-    backgroundColor: Colors.surface.overlay,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.surface.elevated,
-    color: Colors.text.title,
-    fontSize: Typography.size.md,
-    paddingHorizontal: Spacing.md,
-  },
-  unitText: {
-    fontSize: Typography.size.sm,
-    color: Colors.text.caption,
+function fmtTime(date) {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+// ── Toggle ────────────────────────────────────────────────────────
+function Toggle({ value, onPress, color = Colors.success, disabled }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.85}
+      style={[tog.track, { backgroundColor: value ? color : Colors.surface.elevated }]}
+    >
+      <View style={[tog.knob, { alignSelf: value ? 'flex-end' : 'flex-start' }]} />
+    </TouchableOpacity>
+  );
+}
+const tog = StyleSheet.create({
+  track: { width: 44, height: 24, borderRadius: 12, padding: 2, justifyContent: 'center' },
+  knob: {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: '#fff',
+    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
   },
 });
 
-// ── AutomaticMode Component ───────────────────────────────────────
-export default function AutomaticMode({ devices = [] }) {
-  const { token } = useAuth();
-  const [rules, setRules] = useState([]);
-  const [saving, setSaving] = useState(false);
-
-  function addRule() {
-    setRules((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        deviceKey: devices[0]?.key ?? '',
-        sensorKey: 'temperature',
-        op: '>',
-        threshold: '30',
-        action: 'ON',
-      },
-    ]);
+// ── Day Picker ────────────────────────────────────────────────────
+function DayPicker({ selected, onChange }) {
+  const all = DAYS.every(d => selected.includes(d));
+  function toggle(d) {
+    onChange(selected.includes(d) ? selected.filter(x => x !== d) : [...selected, d]);
   }
+  return (
+    <View style={dpk.row}>
+      <TouchableOpacity
+        style={[dpk.chip, all && dpk.on]}
+        onPress={() => onChange(all ? [] : [...DAYS])}
+      >
+        <Text style={[dpk.txt, all && dpk.onTxt]}>All</Text>
+      </TouchableOpacity>
+      {DAYS.map(d => (
+        <TouchableOpacity
+          key={d}
+          style={[dpk.chip, selected.includes(d) && dpk.on]}
+          onPress={() => toggle(d)}
+        >
+          <Text style={[dpk.txt, selected.includes(d) && dpk.onTxt]}>{d}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+const dpk = StyleSheet.create({
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
+  chip: {
+    paddingHorizontal: Spacing.sm, paddingVertical: 3,
+    borderRadius: Radius.full, backgroundColor: Colors.surface.elevated,
+    minWidth: 36, alignItems: 'center',
+  },
+  on:    { backgroundColor: Colors.state.auto },
+  txt:   { fontSize: Typography.size.xs, color: Colors.text.body },
+  onTxt: { color: '#fff', fontWeight: Typography.weight.semibold },
+});
 
-  function removeRule(id) {
-    setRules((prev) => prev.filter((r) => r.id !== id));
-  }
+// ── Door Auto-Lock Card ───────────────────────────────────────────
+// Door states: OPEN (physically open) | CLOSE (closed, unlocked) | LOCKED
+// Auto-lock: after door is OPEN, automatically send LOCKED after delay_sec.
+function DoorAutoLockCard({ doorDevices, config, onSave, saving }) {
+  const [enabled,  setEnabled]  = useState(config.door_auto_lock ?? false);
+  const [delaySec, setDelaySec] = useState(config.door_auto_lock_delay_sec ?? 120);
+  const delayMin = Math.max(1, Math.round(delaySec / 60));
+  const names = doorDevices.map(d => d.name ?? d.feed_key ?? d.key).join(', ');
 
-  function updateRule(id, updated) {
-    setRules((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, ...updated } : r)),
-    );
-  }
+  return (
+    <View style={dl.card}>
+      <View style={dl.head}>
+        <View style={dl.headIcon}>
+          <Ionicons name="lock-closed-outline" size={18} color={Colors.state.auto} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={dl.title}>Door Auto-Lock</Text>
+          <Text style={dl.sub}>{names}</Text>
+        </View>
+      </View>
 
-  async function handleSave() {
-    if (rules.length === 0) {
-      Alert.alert('No rules', 'Add at least one automation rule.');
-      return;
-    }
+      {/* State guide */}
+      <View style={dl.stateGuide}>
+        {[
+          { badge: 'OPEN',   desc: 'Physically open',    color: Colors.warning },
+          { badge: 'CLOSED', desc: 'Closed, not locked', color: Colors.info    },
+          { badge: 'LOCKED', desc: 'Closed and locked',  color: Colors.success },
+        ].map(({ badge, desc, color }) => (
+          <View key={badge} style={dl.stateRow}>
+            <View style={[dl.stateBadge, { backgroundColor: color + '22', borderColor: color }]}>
+              <Text style={[dl.stateBadgeText, { color }]}>{badge}</Text>
+            </View>
+            <Text style={dl.stateDesc}>{desc}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={dl.row}>
+        <Text style={dl.rowLabel}>Lock automatically after door opens</Text>
+        <Toggle value={enabled} onPress={() => setEnabled(v => !v)} color={Colors.success} />
+      </View>
+
+      {enabled && (
+        <View style={dl.delayRow}>
+          <Text style={dl.delayLabel}>Lock after</Text>
+          <TouchableOpacity
+            style={dl.stepBtn}
+            onPress={() => setDelaySec(prev => Math.max(60, prev - 60))}
+          >
+            <Ionicons name="remove-outline" size={18} color={Colors.primary.default} />
+          </TouchableOpacity>
+          <Text style={dl.delayVal}>{delayMin} min</Text>
+          <TouchableOpacity
+            style={dl.stepBtn}
+            onPress={() => setDelaySec(prev => prev + 60)}
+          >
+            <Ionicons name="add-outline" size={18} color={Colors.primary.default} />
+          </TouchableOpacity>
+          <Text style={dl.delayUnit}>open</Text>
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={[dl.saveBtn, saving && { opacity: 0.7 }]}
+        onPress={() => onSave({ door_auto_lock: enabled, door_auto_lock_delay_sec: delaySec })}
+        disabled={saving}
+        activeOpacity={0.85}
+      >
+        {saving
+          ? <ActivityIndicator size="small" color={Colors.text.onGold} />
+          : <Text style={dl.saveTxt}>Save Auto-Lock</Text>
+        }
+      </TouchableOpacity>
+    </View>
+  );
+}
+const dl = StyleSheet.create({
+  card: {
+    backgroundColor: Colors.surface.card, borderRadius: Radius.lg,
+    padding: Spacing.xl, gap: Spacing.md,
+    borderWidth: 1, borderColor: Colors.state.auto + '40',
+  },
+  head:     { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  headIcon: {
+    width: 36, height: 36, borderRadius: Radius.md,
+    backgroundColor: Colors.state.auto + '20',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  title: { fontSize: Typography.size.md, fontWeight: Typography.weight.bold, color: Colors.text.title },
+  sub:   { fontSize: Typography.size.xs, color: Colors.text.caption, marginTop: 1 },
+
+  stateGuide: { gap: Spacing.xs, padding: Spacing.md, backgroundColor: Colors.surface.elevated + '55', borderRadius: Radius.md },
+  stateRow:   { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  stateBadge: {
+    paddingHorizontal: Spacing.sm, paddingVertical: 1,
+    borderRadius: Radius.full, borderWidth: 1, minWidth: 60, alignItems: 'center',
+  },
+  stateBadgeText: { fontSize: Typography.size.xs, fontWeight: Typography.weight.bold },
+  stateDesc:      { fontSize: Typography.size.xs, color: Colors.text.caption },
+
+  row:      { flexDirection: 'row', alignItems: 'center' },
+  rowLabel: { flex: 1, fontSize: Typography.size.sm, color: Colors.text.body },
+
+  delayRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    backgroundColor: Colors.surface.elevated + '88',
+    borderRadius: Radius.md, padding: Spacing.md,
+  },
+  delayLabel: { flex: 1, fontSize: Typography.size.sm, color: Colors.text.caption },
+  stepBtn: {
+    width: 32, height: 32, borderRadius: Radius.full,
+    backgroundColor: Colors.surface.elevated,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  delayVal: {
+    fontSize: Typography.size.md, color: Colors.text.title,
+    fontWeight: Typography.weight.bold, minWidth: 52, textAlign: 'center',
+  },
+  delayUnit: { fontSize: Typography.size.sm, color: Colors.text.caption },
+
+  saveBtn: {
+    backgroundColor: Colors.primary.default,
+    borderRadius: Radius.full, paddingVertical: Spacing.sm,
+    alignItems: 'center',
+  },
+  saveTxt: { fontSize: Typography.size.sm, fontWeight: Typography.weight.bold, color: Colors.text.onGold },
+});
+
+// ── Rule Item ─────────────────────────────────────────────────────
+function RuleItem({ rule, deviceType, onToggle, onDelete, toggling }) {
+  const isNum = deviceType === 'DIMMER' || deviceType === 'RGB';
+  const valLabel = isNum ? `${rule.value}%` : rule.value;
+  return (
+    <View style={ri.row}>
+      <View style={ri.timeBox}>
+        <Text style={ri.timeTxt}>{rule.time_of_day}</Text>
+      </View>
+      <View style={ri.info}>
+        <Text style={ri.days}>{formatDays(rule.days_of_week)}</Text>
+        <Text style={ri.val}>→ {valLabel}</Text>
+      </View>
+      {toggling
+        ? <ActivityIndicator size="small" color={Colors.state.auto} />
+        : <Toggle value={rule.enabled !== false} onPress={() => onToggle(rule)} color={Colors.state.auto} />
+      }
+      <TouchableOpacity onPress={() => onDelete(rule.id)} style={ri.del}>
+        <Ionicons name="trash-outline" size={16} color={Colors.error} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+const ri = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingVertical: Spacing.sm },
+  timeBox: {
+    backgroundColor: Colors.surface.elevated,
+    borderRadius: Radius.sm, paddingHorizontal: Spacing.sm, paddingVertical: 3,
+    minWidth: 52, alignItems: 'center',
+  },
+  timeTxt: { fontSize: Typography.size.sm, color: Colors.text.title, fontWeight: Typography.weight.semibold },
+  info:    { flex: 1 },
+  days:    { fontSize: Typography.size.xs, color: Colors.text.caption },
+  val:     { fontSize: Typography.size.sm, color: Colors.text.body, marginTop: 1 },
+  del:     { padding: Spacing.xs },
+});
+
+// ── Add Rule Form ─────────────────────────────────────────────────
+function AddRuleForm({ deviceType, onAdd, onCancel }) {
+  const isNum = deviceType === 'DIMMER' || deviceType === 'RGB';
+  const [time,       setTime]       = useState(() => { const d = new Date(); d.setSeconds(0, 0); return d; });
+  const [showPicker, setShowPicker] = useState(false);
+  const [days,       setDays]       = useState([...DAYS]);
+  const [value,      setValue]      = useState(isNum ? '50' : 'ON');
+  const [saving,     setSaving]     = useState(false);
+
+  async function handleAdd() {
+    if (!days.length) { Alert.alert('Select at least one day'); return; }
     setSaving(true);
     try {
-      // DEV_MODE: chỉ simulate, production sẽ gọi BE endpoint riêng
-      await new Promise((r) => setTimeout(r, 600));
-      Alert.alert('Saved', `${rules.length} automation rule(s) saved.`);
-    } catch (e) {
-      Alert.alert('Error', e.message);
+      await onAdd({
+        time_of_day:  fmtTime(time),
+        days_of_week: days.join(','),
+        value:        String(value),
+        enabled:      true,
+      });
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <View style={s.container}>
-      {/* Info banner */}
-      <View style={s.infoBanner}>
-        <Ionicons name="flash-outline" size={16} color={Colors.state.auto} />
-        <Text style={s.infoText}>
-          Devices will react automatically based on sensor readings.
-        </Text>
+    <View style={af.form}>
+      <Text style={af.title}>New Rule</Text>
+
+      <Text style={af.lbl}>TIME</Text>
+      <TouchableOpacity onPress={() => setShowPicker(true)} style={af.dtBtn}>
+        <Ionicons name="time-outline" size={16} color={Colors.primary.default} />
+        <Text style={af.dtTxt}>{fmtTime(time)}</Text>
+      </TouchableOpacity>
+      {showPicker && (
+        <DateTimePicker
+          value={time}
+          mode="time"
+          is24Hour
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={(_, sel) => {
+            setShowPicker(Platform.OS === 'ios');
+            if (sel) setTime(sel);
+          }}
+        />
+      )}
+
+      <Text style={af.lbl}>DAYS</Text>
+      <DayPicker selected={days} onChange={setDays} />
+
+      <Text style={af.lbl}>VALUE</Text>
+      {isNum ? (
+        <View style={af.numRow}>
+          <TextInput
+            style={af.numInput}
+            value={String(value)}
+            onChangeText={v => setValue(v.replace(/\D/g, '').slice(0, 3))}
+            keyboardType="numeric"
+            placeholder="0–100"
+            placeholderTextColor={Colors.text.caption}
+          />
+          <Text style={af.unit}>%</Text>
+        </View>
+      ) : (
+        <View style={af.valRow}>
+          {['ON', 'OFF'].map(v => (
+            <TouchableOpacity
+              key={v}
+              style={[af.valChip, value === v && af.valChipOn]}
+              onPress={() => setValue(v)}
+            >
+              <Text style={[af.valTxt, value === v && af.valTxtOn]}>{v}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      <View style={af.btnRow}>
+        <TouchableOpacity style={af.cancelBtn} onPress={onCancel} disabled={saving}>
+          <Text style={af.cancelTxt}>Cancel</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[af.addBtn, (saving || !days.length) && { opacity: 0.5 }]}
+          onPress={handleAdd}
+          disabled={saving || !days.length}
+        >
+          {saving
+            ? <ActivityIndicator size="small" color={Colors.text.onGold} />
+            : <Text style={af.addTxt}>Add</Text>
+          }
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+const af = StyleSheet.create({
+  form: {
+    backgroundColor: Colors.surface.elevated + '55', borderRadius: Radius.md,
+    padding: Spacing.lg, gap: Spacing.md, marginTop: Spacing.sm,
+    borderWidth: 1, borderColor: Colors.primary.default + '50',
+  },
+  title:  { fontSize: Typography.size.md, fontWeight: Typography.weight.bold, color: Colors.text.title },
+  lbl:    { fontSize: Typography.size.xs, color: Colors.text.caption, fontWeight: Typography.weight.semibold, letterSpacing: 0.5 },
+  dtBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    backgroundColor: Colors.surface.card, borderRadius: Radius.md,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderWidth: 1, borderColor: Colors.surface.elevated, alignSelf: 'flex-start',
+  },
+  dtTxt:  { fontSize: Typography.size.sm, color: Colors.text.title },
+  numRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  numInput: {
+    width: 72, height: 36,
+    backgroundColor: Colors.surface.card, borderRadius: Radius.md,
+    borderWidth: 1, borderColor: Colors.surface.elevated,
+    color: Colors.text.title, fontSize: Typography.size.md,
+    paddingHorizontal: Spacing.md, textAlign: 'center',
+  },
+  unit:       { fontSize: Typography.size.sm, color: Colors.text.caption },
+  valRow:     { flexDirection: 'row', gap: Spacing.sm },
+  valChip:    { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.xs, borderRadius: Radius.full, backgroundColor: Colors.surface.elevated },
+  valChipOn:  { backgroundColor: Colors.primary.default },
+  valTxt:     { fontSize: Typography.size.sm, color: Colors.text.body },
+  valTxtOn:   { color: Colors.text.onGold, fontWeight: Typography.weight.semibold },
+  btnRow:     { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.xs },
+  cancelBtn:  { flex: 1, paddingVertical: Spacing.sm, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.surface.elevated, alignItems: 'center' },
+  cancelTxt:  { fontSize: Typography.size.sm, color: Colors.text.body },
+  addBtn:     { flex: 2, paddingVertical: Spacing.sm, borderRadius: Radius.full, backgroundColor: Colors.primary.default, alignItems: 'center' },
+  addTxt:     { fontSize: Typography.size.sm, fontWeight: Typography.weight.bold, color: Colors.text.onGold },
+});
+
+// ── Device Rule Section ───────────────────────────────────────────
+function DeviceRuleSection({ device, rules, onAdd, onToggle, onDelete }) {
+  const [showForm,  setShowForm]  = useState(false);
+  const [toggling,  setToggling]  = useState(null);
+  const feedKey = device.feed_key ?? device.key;
+  const icon    = DEVICE_ICON[device.type] ?? 'hardware-chip-outline';
+
+  async function handleToggle(rule) {
+    setToggling(rule.id);
+    try { await onToggle(rule); }
+    finally { setToggling(null); }
+  }
+
+  return (
+    <View style={dr.card}>
+      <View style={dr.head}>
+        <View style={[dr.icon, { backgroundColor: Colors.primary.default + '22' }]}>
+          <Ionicons name={icon} size={16} color={Colors.primary.default} />
+        </View>
+        <Text style={dr.name}>{device.name ?? feedKey}</Text>
+        <Text style={dr.type}>{device.type}</Text>
       </View>
 
-      {/* Rules */}
-      {rules.map((rule) => (
-        <RuleCard
-          key={rule.id}
-          rule={rule}
-          devices={devices}
-          onRemove={() => removeRule(rule.id)}
-          onChange={(updated) => updateRule(rule.id, updated)}
-        />
+      {rules.length === 0 && !showForm && (
+        <Text style={dr.empty}>No rules — tap + to add one</Text>
+      )}
+
+      {rules.map((rule, i) => (
+        <View key={rule.id}>
+          {i > 0 && <View style={dr.divider} />}
+          <RuleItem
+            rule={rule}
+            deviceType={device.type}
+            onToggle={handleToggle}
+            onDelete={onDelete}
+            toggling={toggling === rule.id}
+          />
+        </View>
       ))}
 
-      {/* Add rule button */}
-      <TouchableOpacity style={s.addBtn} onPress={addRule} activeOpacity={0.8}>
-        <Ionicons
-          name="add-circle-outline"
-          size={20}
-          color={Colors.primary.default}
-        />
-        <Text style={s.addBtnText}>Add Rule</Text>
-      </TouchableOpacity>
+      {rules.length > 0 && <View style={dr.divider} />}
 
-      {/* Save */}
-      {rules.length > 0 && (
-        <TouchableOpacity
-          style={[s.saveBtn, saving && { opacity: 0.7 }]}
-          onPress={handleSave}
-          disabled={saving}
-          activeOpacity={0.85}
-        >
-          {saving ? (
-            <ActivityIndicator color={Colors.text.onGold} />
-          ) : (
-            <Text style={s.saveBtnText}>Save Rules</Text>
-          )}
+      {showForm ? (
+        <AddRuleForm
+          deviceType={device.type}
+          onAdd={async (data) => { await onAdd(feedKey, data); setShowForm(false); }}
+          onCancel={() => setShowForm(false)}
+        />
+      ) : (
+        <TouchableOpacity style={dr.addBtn} onPress={() => setShowForm(true)} activeOpacity={0.8}>
+          <Ionicons name="add-circle-outline" size={16} color={Colors.primary.default} />
+          <Text style={dr.addTxt}>Add Rule</Text>
         </TouchableOpacity>
       )}
     </View>
   );
 }
+const dr = StyleSheet.create({
+  card: {
+    backgroundColor: Colors.surface.card, borderRadius: Radius.lg,
+    padding: Spacing.xl, gap: Spacing.sm,
+    borderWidth: 1, borderColor: Colors.surface.elevated,
+  },
+  head:    { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.xs },
+  icon:    { width: 32, height: 32, borderRadius: Radius.sm, alignItems: 'center', justifyContent: 'center' },
+  name:    { flex: 1, fontSize: Typography.size.md, fontWeight: Typography.weight.bold, color: Colors.text.title },
+  type:    { fontSize: Typography.size.xs, color: Colors.text.caption },
+  empty:   { fontSize: Typography.size.sm, color: Colors.text.caption, paddingVertical: Spacing.xs },
+  divider: { height: 0.5, backgroundColor: Colors.surface.elevated, marginVertical: 2 },
+  addBtn:  { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, paddingVertical: Spacing.xs },
+  addTxt:  { fontSize: Typography.size.sm, color: Colors.primary.default, fontWeight: Typography.weight.medium },
+});
+
+// ── Main Component ────────────────────────────────────────────────
+export default function AutomaticMode({ devices = [] }) {
+  const { token } = useAuth();
+
+  const [autoConfig,   setAutoConfig]   = useState({ door_auto_lock: false, door_auto_lock_delay_sec: 120 });
+  const [rulesMap,     setRulesMap]     = useState({});
+  const [loading,      setLoading]      = useState(true);
+  const [savingConfig, setSavingConfig] = useState(false);
+
+  const doorDevices   = devices.filter(d => d.type === 'DOOR');
+  const motionDevices = devices.filter(d => d.type === 'MOTION');
+  const ruleDevices   = devices.filter(d => ['LIGHT', 'DIMMER', 'RGB'].includes(d.type));
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [configRes, rulesRes] = await Promise.allSettled([
+          getAutomationMode(token),
+          listAutomationRules(token),
+        ]);
+
+        if (configRes.status === 'fulfilled') {
+          const config = configRes.value;
+          setAutoConfig({
+            door_auto_lock:           config?.door_auto_lock           ?? false,
+            door_auto_lock_delay_sec: config?.door_auto_lock_delay_sec ?? 120,
+          });
+        } else {
+          console.warn('getAutomationMode failed:', configRes.reason?.message);
+        }
+
+        if (rulesRes.status === 'fulfilled') {
+          const raw = rulesRes.value;
+          // Unwrap { count, rules: [...] } or plain array
+          const rulesArr = raw?.rules ?? (Array.isArray(raw) ? raw : []);
+          const map = {};
+          for (const rule of rulesArr) {
+            const key = rule.feed_key ?? rule.device_key ?? '';
+            if (!map[key]) map[key] = [];
+            map[key].push(rule);
+          }
+          setRulesMap(map);
+        } else {
+          console.warn('listAutomationRules failed:', rulesRes.reason?.message);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [token]);
+
+  async function handleSaveConfig(data) {
+    setSavingConfig(true);
+    try {
+      await setAutomationMode(token, data);
+      setAutoConfig(prev => ({ ...prev, ...data }));
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save auto-lock settings.');
+    } finally {
+      setSavingConfig(false);
+    }
+  }
+
+  async function handleAddRule(feedKey, data) {
+    try {
+      const rule = await createAutomationRule(token, { feed_key: feedKey, ...data });
+      // POST response omits feed_key — inject it so toggle/delete can find the right rulesMap key
+      setRulesMap(prev => ({
+        ...prev,
+        [feedKey]: [...(prev[feedKey] ?? []), { ...rule, feed_key: feedKey }],
+      }));
+    } catch (e) {
+      Alert.alert('Error', 'Failed to create rule.');
+    }
+  }
+
+  async function handleToggleRule(rule) {
+    const feedKey = rule.feed_key ?? rule.device_key ?? '';
+    const updated = { ...rule, enabled: !rule.enabled };
+    setRulesMap(prev => ({
+      ...prev,
+      [feedKey]: (prev[feedKey] ?? []).map(r => r.id === rule.id ? updated : r),
+    }));
+    try {
+      await updateAutomationRule(token, rule.id, { enabled: !rule.enabled });
+    } catch (e) {
+      setRulesMap(prev => ({
+        ...prev,
+        [feedKey]: (prev[feedKey] ?? []).map(r => r.id === rule.id ? rule : r),
+      }));
+      Alert.alert('Error', 'Failed to update rule.');
+    }
+  }
+
+  function handleDeleteRule(id, feedKey) {
+    Alert.alert('Delete Rule', 'Remove this automation rule?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive',
+        onPress: async () => {
+          setRulesMap(prev => ({
+            ...prev,
+            [feedKey]: (prev[feedKey] ?? []).filter(r => r.id !== id),
+          }));
+          try {
+            await deleteAutomationRule(token, id);
+          } catch (e) {
+            Alert.alert('Error', 'Failed to delete rule.');
+          }
+        },
+      },
+    ]);
+  }
+
+  if (loading) {
+    return (
+      <View style={s.centered}>
+        <ActivityIndicator size="large" color={Colors.primary.default} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={s.container}>
+
+      {/* Info banner */}
+      <View style={s.infoBanner}>
+        <Ionicons name="flash-outline" size={16} color={Colors.state.auto} />
+        <Text style={s.infoText}>
+          Set recurring schedules and automatic behaviors per device.
+        </Text>
+      </View>
+
+      {/* Motion sensors — always on, automation doesn't apply */}
+      {motionDevices.length > 0 && (
+        <View style={s.motionCard}>
+          <View style={s.motionHead}>
+            <Ionicons name="radio-outline" size={16} color={Colors.state.auto} />
+            <Text style={s.motionTitle}>Motion Sensors</Text>
+          </View>
+          <Text style={s.motionNote}>
+            Always ON — automation does not control sensors.
+          </Text>
+          {motionDevices.map(d => (
+            <Text key={d.feed_key ?? d.key} style={s.motionDevice}>
+              · {d.name ?? d.feed_key ?? d.key}
+            </Text>
+          ))}
+        </View>
+      )}
+
+      {/* Door auto-lock config */}
+      {doorDevices.length > 0 && (
+        <DoorAutoLockCard
+          doorDevices={doorDevices}
+          config={autoConfig}
+          onSave={handleSaveConfig}
+          saving={savingConfig}
+        />
+      )}
+
+      {/* Light / Dimmer / RGB — recurring time-based rules */}
+      {ruleDevices.map(device => {
+        const feedKey = device.feed_key ?? device.key;
+        return (
+          <DeviceRuleSection
+            key={feedKey}
+            device={device}
+            rules={rulesMap[feedKey] ?? []}
+            onAdd={handleAddRule}
+            onToggle={handleToggleRule}
+            onDelete={(id) => handleDeleteRule(id, feedKey)}
+          />
+        );
+      })}
+
+      {devices.length === 0 && (
+        <View style={s.empty}>
+          <Text style={s.emptyTxt}>No devices in this room.</Text>
+        </View>
+      )}
+
+    </View>
+  );
+}
 
 const s = StyleSheet.create({
-  container: { gap: Spacing.lg },
+  container:  { gap: Spacing.lg },
+  centered:   { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xxl },
 
   infoBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
     backgroundColor: Colors.state.auto + '20',
-    borderRadius: Radius.md,
-    padding: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Colors.state.auto + '40',
+    borderRadius: Radius.md, padding: Spacing.lg,
+    borderWidth: 1, borderColor: Colors.state.auto + '40',
   },
-  infoText: {
-    flex: 1,
-    fontSize: Typography.size.sm,
-    color: Colors.text.subtitle,
-    lineHeight: 18,
-  },
+  infoText: { flex: 1, fontSize: Typography.size.sm, color: Colors.text.subtitle, lineHeight: 18 },
 
-  addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    borderWidth: 1.5,
-    borderColor: Colors.primary.default,
-    borderRadius: Radius.lg,
-    paddingVertical: Spacing.lg,
-    borderStyle: 'dashed',
+  motionCard: {
+    backgroundColor: Colors.surface.card, borderRadius: Radius.lg,
+    padding: Spacing.xl, gap: Spacing.sm,
+    borderWidth: 1, borderColor: Colors.surface.elevated,
   },
-  addBtnText: {
-    fontSize: Typography.size.md,
-    color: Colors.primary.default,
-    fontWeight: Typography.weight.semibold,
-  },
+  motionHead:   { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  motionTitle:  { fontSize: Typography.size.md, fontWeight: Typography.weight.bold, color: Colors.text.title },
+  motionNote:   { fontSize: Typography.size.sm, color: Colors.text.caption, lineHeight: 18 },
+  motionDevice: { fontSize: Typography.size.sm, color: Colors.text.body, marginLeft: Spacing.sm },
 
-  saveBtn: {
-    backgroundColor: Colors.primary.default,
-    borderRadius: Radius.full,
-    paddingVertical: Spacing.lg,
-    alignItems: 'center',
-    marginTop: Spacing.sm,
-  },
-  saveBtnText: {
-    fontSize: Typography.size.lg,
-    fontWeight: Typography.weight.bold,
-    color: Colors.text.onGold,
-  },
+  empty:    { padding: Spacing.xl, alignItems: 'center' },
+  emptyTxt: { fontSize: Typography.size.md, color: Colors.text.caption },
 });

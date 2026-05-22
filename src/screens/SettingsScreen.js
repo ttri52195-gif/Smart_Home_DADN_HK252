@@ -1,24 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../context/AuthContext';
+import { listDevices, setDeviceState, getAwayMode, setAwayMode } from '../services/api';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 
-const DOOR_LOCKS = [
-  { id: 'garden_front', name: 'Front Door', location: 'Garden',      status: 'locked', active: true  },
-  { id: 'living_front', name: 'Front Door', location: 'Living Room', status: 'error',  active: false },
-  { id: 'living_back',  name: 'Front Door', location: 'Living Room', status: 'open',   active: true  },
-];
-
-function doorStyle(status, awayMode) {
-  const effective = awayMode && status !== 'error' ? 'locked' : status;
-  switch (effective) {
-    case 'locked': return { iconBg: Colors.success,         badge: 'LOCKED', color: Colors.success };
-    case 'error':  return { iconBg: Colors.error,           badge: 'ERROR',  color: Colors.error   };
-    case 'open':   return { iconBg: Colors.warning,         badge: 'OPEN',   color: Colors.warning  };
-    default:       return { iconBg: Colors.surface.elevated, badge: '—',      color: Colors.text.caption };
+// Door has three distinct states: OPEN (physically open), CLOSE (closed, unlocked), LOCKED
+function doorStyleFor(rawState) {
+  switch ((rawState ?? '').toUpperCase()) {
+    case 'LOCKED':
+      return { icon: 'lock-closed',  badge: 'LOCKED', color: Colors.success };
+    case 'OPEN':
+      return { icon: 'lock-open',    badge: 'OPEN',   color: Colors.warning  };
+    case 'CLOSE':
+    case 'CLOSED':
+      return { icon: 'lock-open',    badge: 'CLOSED', color: Colors.info     };
+    default:
+      return { icon: 'help-outline', badge: '—',      color: Colors.text.caption };
   }
 }
 
@@ -42,31 +43,79 @@ function Toggle({ value, color, onPress, disabled }) {
 }
 
 export default function SettingsScreen({ navigation }) {
-  const [awayMode,    setAwayMode]    = useState(false);
-  const [doorStates,  setDoorStates]  = useState(
-    Object.fromEntries(DOOR_LOCKS.map(d => [d.id, d.status]))
-  );
+  const { token } = useAuth();
 
-  function toggleAway() {
-    const next = !awayMode;
-    setAwayMode(next);
-    if (next) {
-      setDoorStates(prev =>
-        Object.fromEntries(
-          DOOR_LOCKS.map(d => [
-            d.id,
-            prev[d.id] === 'error' ? 'error' : 'locked',
-          ])
-        )
-      );
+  const [awayMode,     setAwayState]   = useState(false);
+  const [doors,        setDoors]       = useState([]);
+  const [loading,      setLoading]     = useState(true);
+  const [togglingAway, setTogglingAway] = useState(false);
+  const [togglingId,   setTogglingId]  = useState(null);
+
+  useEffect(() => { loadData(); }, []);
+
+  async function loadData() {
+    try {
+      const [awayRes, devRes] = await Promise.all([
+        getAwayMode(token),
+        listDevices(),
+      ]);
+      setAwayState(awayRes?.enabled === true);
+      const allDev = devRes?.devices ?? (Array.isArray(devRes) ? devRes : []);
+      setDoors(allDev.filter(d => d.type === 'DOOR'));
+    } catch (e) {
+      console.warn('SettingsScreen load error:', e.message);
+    } finally {
+      setLoading(false);
     }
   }
 
-  function toggleDoor(id) {
-    setDoorStates(prev => ({
-      ...prev,
-      [id]: prev[id] === 'locked' ? 'open' : 'locked',
-    }));
+  async function handleToggleAway() {
+    const next = !awayMode;
+    setTogglingAway(true);
+    setAwayState(next);
+    try {
+      await setAwayMode(token, next);
+      // Refresh door states — backend commands them immediately on away toggle
+      const devRes = await listDevices();
+      const allDev = devRes?.devices ?? (Array.isArray(devRes) ? devRes : []);
+      setDoors(allDev.filter(d => d.type === 'DOOR'));
+    } catch (e) {
+      setAwayState(!next);
+      console.warn('setAwayMode error:', e.message);
+    } finally {
+      setTogglingAway(false);
+    }
+  }
+
+  // Toggle between LOCKED ↔ CLOSE. OPEN doors cannot be toggled (physically open).
+  async function handleToggleDoor(door) {
+    const current = (door.value ?? door.last_value ?? 'CLOSE').toUpperCase();
+    if (current === 'OPEN') return;
+    const next = current === 'LOCKED' ? 'CLOSE' : 'LOCKED';
+    setTogglingId(door.feed_key);
+    setDoors(prev => prev.map(d =>
+      d.feed_key === door.feed_key ? { ...d, value: next } : d
+    ));
+    try {
+      await setDeviceState(door.feed_key, next, token);
+    } catch (e) {
+      setDoors(prev => prev.map(d =>
+        d.feed_key === door.feed_key ? { ...d, value: current } : d
+      ));
+      console.warn('toggleDoor error:', e.message);
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  const lockedCount = doors.filter(d => (d.value ?? d.last_value ?? '').toUpperCase() === 'LOCKED').length;
+  const openCount   = doors.filter(d => (d.value ?? d.last_value ?? '').toUpperCase() === 'OPEN').length;
+
+  function awaySubText() {
+    if (awayMode) return 'All doors locked · All devices off';
+    if (openCount > 0) return `${openCount} door(s) open · ${lockedCount} locked`;
+    if (lockedCount > 0) return `${lockedCount} door(s) locked`;
+    return 'All doors unlocked';
   }
 
   return (
@@ -92,13 +141,9 @@ export default function SettingsScreen({ navigation }) {
       >
 
         {/* ── Away Mode banner ───────────────────────── */}
-        <View style={[s.awayBanner, {
-          borderColor: awayMode ? Colors.success : Colors.warning,
-        }]}>
+        <View style={[s.awayBanner, { borderColor: awayMode ? Colors.success : Colors.warning }]}>
           <View style={[s.awayIcon, {
-            backgroundColor: awayMode
-              ? Colors.success + '22'
-              : Colors.warning + '22',
+            backgroundColor: awayMode ? Colors.success + '22' : Colors.warning + '22',
           }]}>
             <Ionicons
               name={awayMode ? 'shield-checkmark' : 'shield'}
@@ -112,86 +157,98 @@ export default function SettingsScreen({ navigation }) {
           </Text>
 
           <Text style={[s.awaySub, { color: awayMode ? Colors.success : Colors.primary.default }]}>
-            {awayMode
-              ? 'All doors locked\nPIR sensor active'
-              : 'Unlocked doors: Garden 1, Master Bedroom\nPIR sensor active'}
+            {awaySubText()}
           </Text>
 
           <TouchableOpacity
-            style={[s.awayBtn, {
-              borderColor: awayMode ? Colors.warning : Colors.success,
-            }]}
-            onPress={toggleAway}
+            style={[s.awayBtn, { borderColor: awayMode ? Colors.warning : Colors.success }]}
+            onPress={handleToggleAway}
+            disabled={togglingAway}
+            activeOpacity={0.85}
           >
-            <Text style={[s.awayBtnText, {
-              color: awayMode ? Colors.warning : Colors.success,
-            }]}>
-              {awayMode ? 'Disable Away Mode' : 'Enable Away Mode'}
-            </Text>
+            {togglingAway
+              ? <ActivityIndicator size="small" color={awayMode ? Colors.warning : Colors.success} />
+              : <Text style={[s.awayBtnText, { color: awayMode ? Colors.warning : Colors.success }]}>
+                  {awayMode ? 'Disable Away Mode' : 'Enable Away Mode'}
+                </Text>
+            }
           </TouchableOpacity>
         </View>
 
         {/* ── Door Locks ─────────────────────────────── */}
         <Text style={s.sectionLabel}>DOOR LOCKS</Text>
-        <View style={s.doorList}>
-          {DOOR_LOCKS.map((door, i) => {
-            const status  = doorStates[door.id];
-            const ds      = doorStyle(status, awayMode);
-            const isLocked = awayMode
-              ? status !== 'error'
-              : status === 'locked';
-            const toggleColor = awayMode ? Colors.state.auto : Colors.success;
 
-            return (
-              <View
-                key={door.id}
-                style={[
-                  s.doorRow,
-                  i > 0 && s.doorBorder,
-                  { borderLeftColor: ds.color + '55' },
-                ]}
-              >
-                {/* Icon box */}
-                <View style={[s.doorIconBox, { backgroundColor: ds.iconBg + '33' }]}>
-                  <Ionicons
-                    name={status === 'open' && !awayMode ? 'lock-open' : 'lock-closed'}
-                    size={22}
-                    color={ds.iconBg}
-                  />
-                </View>
-
-                {/* Name + location + active state */}
-                <View style={s.doorInfo}>
-                  <Text style={s.doorName}>{door.name}</Text>
-                  <Text style={[s.doorLocation, { color: ds.color }]}>{door.location}</Text>
-                  <Text style={[s.doorActive, { color: ds.color }]}>
-                    {door.active ? 'Active' : 'Inactive'}
-                  </Text>
-                </View>
-
-                {/* Badge + toggle */}
-                <View style={s.doorRight}>
-                  <View style={[s.doorBadge, {
-                    backgroundColor: ds.color + '22',
-                    borderColor:     ds.color,
-                  }]}>
-                    <Text style={[s.doorBadgeText, { color: ds.color }]}>
-                      {ds.badge}
-                    </Text>
-                  </View>
-
-                  {status !== 'error' && (
-                    <Toggle
-                      value={isLocked}
-                      color={toggleColor}
-                      onPress={() => !awayMode && toggleDoor(door.id)}
-                      disabled={awayMode}
-                    />
-                  )}
-                </View>
+        {loading ? (
+          <ActivityIndicator color={Colors.primary.default} style={{ padding: Spacing.xl }} />
+        ) : (
+          <View style={s.doorList}>
+            {doors.length === 0 ? (
+              <View style={s.emptyRow}>
+                <Text style={s.emptyText}>No door devices found.</Text>
               </View>
-            );
-          })}
+            ) : (
+              doors.map((door, i) => {
+                const rawState  = (door.value ?? door.last_value ?? 'CLOSE').toUpperCase();
+                const ds        = doorStyleFor(rawState);
+                const isLocked  = rawState === 'LOCKED';
+                const isOpen    = rawState === 'OPEN';
+                const isToggling = togglingId === door.feed_key;
+
+                return (
+                  <View
+                    key={door.feed_key}
+                    style={[s.doorRow, i > 0 && s.doorBorder, { borderLeftColor: ds.color + '55' }]}
+                  >
+                    <View style={[s.doorIconBox, { backgroundColor: ds.color + '22' }]}>
+                      <Ionicons name={ds.icon} size={22} color={ds.color} />
+                    </View>
+
+                    <View style={s.doorInfo}>
+                      <Text style={s.doorName}>{door.name ?? door.feed_key}</Text>
+                      {door.location
+                        ? <Text style={[s.doorLocation, { color: ds.color }]}>{door.location}</Text>
+                        : null
+                      }
+                    </View>
+
+                    <View style={s.doorRight}>
+                      <View style={[s.doorBadge, { backgroundColor: ds.color + '22', borderColor: ds.color }]}>
+                        <Text style={[s.doorBadgeText, { color: ds.color }]}>{ds.badge}</Text>
+                      </View>
+
+                      {/* OPEN: physically open — show warning, no toggle */}
+                      {isOpen ? (
+                        <Ionicons name="alert-circle-outline" size={22} color={Colors.warning} />
+                      ) : isToggling ? (
+                        <ActivityIndicator size="small" color={Colors.primary.default} />
+                      ) : (
+                        <Toggle
+                          value={isLocked}
+                          color={awayMode ? Colors.state.auto : Colors.success}
+                          onPress={() => !awayMode && handleToggleDoor(door)}
+                          disabled={awayMode || isToggling}
+                        />
+                      )}
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        )}
+
+        {/* ── State legend ───────────────────────────── */}
+        <View style={s.legend}>
+          {[
+            { color: Colors.warning, label: 'OPEN — door is physically open' },
+            { color: Colors.info,    label: 'CLOSED — closed but unlocked' },
+            { color: Colors.success, label: 'LOCKED — closed and locked' },
+          ].map(({ color, label }) => (
+            <View key={label} style={s.legendRow}>
+              <View style={[s.legendDot, { backgroundColor: color }]} />
+              <Text style={s.legendText}>{label}</Text>
+            </View>
+          ))}
         </View>
 
       </ScrollView>
@@ -209,8 +266,8 @@ const s = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingVertical:   Spacing.lg,
   },
-  title: { color: Colors.text.title,   fontSize: 26, fontWeight: Typography.weight.bold },
-  date:  { color: Colors.text.caption, fontSize: Typography.size.sm, marginTop: 2 },
+  title:  { color: Colors.text.title,   fontSize: 26, fontWeight: Typography.weight.bold },
+  date:   { color: Colors.text.caption, fontSize: Typography.size.sm, marginTop: 2 },
   avatar: {
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: Colors.primary.brand,
@@ -224,6 +281,7 @@ const s = StyleSheet.create({
     paddingTop:        Spacing.sm,
   },
 
+  // Away banner
   awayBanner: {
     backgroundColor: Colors.surface.card,
     borderRadius:    Radius.xl,
@@ -242,17 +300,15 @@ const s = StyleSheet.create({
     fontWeight: Typography.weight.bold,
     textAlign:  'center',
   },
-  awaySub: {
-    fontSize:   Typography.size.sm,
-    textAlign:  'center',
-    lineHeight: 18,
-  },
+  awaySub: { fontSize: Typography.size.sm, textAlign: 'center', lineHeight: 18 },
   awayBtn: {
     borderWidth:       1.5,
     borderRadius:      Radius.full,
     paddingHorizontal: Spacing.xxl,
     paddingVertical:   Spacing.sm,
     marginTop:         Spacing.xs,
+    minWidth:          180,
+    alignItems:        'center',
   },
   awayBtnText: { fontSize: Typography.size.sm, fontWeight: Typography.weight.semibold },
 
@@ -264,28 +320,24 @@ const s = StyleSheet.create({
     textTransform: 'uppercase',
   },
 
-  doorList: {
-    backgroundColor: Colors.surface.card,
-    borderRadius:    Radius.lg,
-    overflow:        'hidden',
-  },
+  // Door list
+  doorList: { backgroundColor: Colors.surface.card, borderRadius: Radius.lg },
   doorRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    padding:       Spacing.lg,
-    gap:           Spacing.lg,
+    flexDirection:   'row',
+    alignItems:      'center',
+    padding:         Spacing.lg,
+    gap:             Spacing.lg,
     borderLeftWidth: 3,
     borderLeftColor: 'transparent',
   },
-  doorBorder: { borderTopWidth: 0.5, borderTopColor: Colors.surface.elevated },
-  doorIconBox: {
+  doorBorder:   { borderTopWidth: 0.5, borderTopColor: Colors.surface.elevated },
+  doorIconBox:  {
     width: 48, height: 48, borderRadius: Radius.md,
     alignItems: 'center', justifyContent: 'center',
   },
   doorInfo:     { flex: 1 },
-  doorName:     { color: Colors.text.title,   fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
+  doorName:     { color: Colors.text.title, fontSize: Typography.size.md, fontWeight: Typography.weight.bold },
   doorLocation: { fontSize: Typography.size.sm, marginTop: 2 },
-  doorActive:   { fontSize: Typography.size.xs, marginTop: 1 },
   doorRight:    { alignItems: 'flex-end', gap: Spacing.sm },
   doorBadge: {
     paddingHorizontal: Spacing.sm,
@@ -305,4 +357,13 @@ const s = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },
   },
+
+  emptyRow:  { padding: Spacing.xl, alignItems: 'center' },
+  emptyText: { color: Colors.text.caption, fontSize: Typography.size.sm },
+
+  // Legend
+  legend:    { gap: Spacing.xs, paddingHorizontal: Spacing.xs },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: Typography.size.xs, color: Colors.text.caption },
 });
