@@ -5,7 +5,7 @@ import {
 // ── DEV MODE ──────────────────────────────────────────────────────────────────
 // true  → skip the backend, every function returns mock data instantly.
 // false → hit the real FastAPI backend (update API_BASE_URL below first).
-export const DEV_MODE = true;
+export const DEV_MODE = false;
 // ─────────────────────────────────────────────────────────────────────────────
 
 // When testing on a physical device with Expo Go, set this to your computer's
@@ -13,7 +13,7 @@ export const DEV_MODE = true;
 //   iOS Simulator  → 'http://localhost:8001'
 //   Android Emu    → 'http://10.0.2.2:8001'
 //   Physical phone → 'http://<your-lan-ip>:8001'
-export const API_BASE_URL = 'http://192.168.69.113:8001';
+export const API_BASE_URL = 'http://10.127.13.99:8001';
 
 // ── Internal fetch helper ─────────────────────────────────────────────────────
 // The backend wraps every success as { success: true, data: <payload> }.
@@ -102,12 +102,12 @@ export async function getUserByUsername(username) {
 }
 
 // Creates a new family member account via the shared register endpoint.
-export async function createMember(token, username, password) {
+export async function createMember(token, username, password, ownerID) {
   if (DEV_MODE) return { message: 'Member created successfully' };
   return request('/api/auth/register', {
     method: 'POST',
     token,
-    body: { username, password },
+    body: { username, password,ownerID },
   });
 }
 

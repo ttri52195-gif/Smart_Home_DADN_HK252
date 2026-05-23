@@ -62,6 +62,7 @@ function MemberRow({ member, isSelf, onDelete, deleting }) {
 export default function FamilyMemberScreen({ navigation }) {
   const { token, user } = useAuth();
 
+  const [profile, setProfile] = useState(null);
   const [members,    setMembers]    = useState([]);
   const [isOwner,    setIsOwner]    = useState(false);
   const [loading,    setLoading]    = useState(true);
@@ -90,6 +91,7 @@ export default function FamilyMemberScreen({ navigation }) {
           listUsers(token),
         ]);
         setIsOwner(profile?.is_house_owner === true);
+        setProfile(profile);
         setMembers(list);
       } catch (e) {
         console.warn('FamilyMember load error:', e.message);
@@ -131,11 +133,12 @@ export default function FamilyMemberScreen({ navigation }) {
     setBanner(null);
     const uname = newUsername.trim();
     try {
-      await createMember(token, uname, newPassword);
+      await createMember(token, uname, newPassword, profile?.id);
       setMembers(prev => [...prev, { id: Date.now(), username: uname, role: 'member' }]);
       setNewUsername(''); setNewPassword(''); setNewConfirm('');
       setBanner({ type: 'success', msg: `${uname} added as a family member.` });
     } catch (e) {
+      console.log(e);
       const msg = e.message?.includes('400') || e.message?.includes('409')
         ? 'Username already exists.'
         : 'Failed to add member. Please try again.';
