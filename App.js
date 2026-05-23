@@ -17,8 +17,9 @@ import SettingsScreen        from './src/screens/SettingsScreen';
 import AccountSettingsScreen  from './src/screens/AccountSettingsScreen';
 import ChangePasswordScreen  from './src/screens/ChangePasswordScreen';
 import FamilyMemberScreen    from './src/screens/FamilyMemberScreen';
-import RoomDeviceScreen      from './src/screens/RoomDeviceScreen';
-import RoomSettingScreen     from './src/screens/RoomSetting/RoomSettingScreen';
+import RoomDeviceScreen           from './src/screens/RoomDeviceScreen';
+import RoomSettingScreen          from './src/screens/RoomSetting/RoomSettingScreen';
+import ThresholdSettingsScreen    from './src/screens/ThresholdSettingsScreen';
 import { Colors, Typography } from './src/theme';
 
 const Tab   = createBottomTabNavigator();
@@ -117,6 +118,11 @@ function RootNavigator() {
       <Stack.Screen
         name="RoomDevice"
         component={RoomDeviceScreen}
+        options={{ presentation: 'card' }}
+      />
+      <Stack.Screen
+        name="ThresholdSettings"
+        component={ThresholdSettingsScreen}
         options={{ presentation: 'card' }}
       />
     </Stack.Navigator>

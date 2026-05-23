@@ -7,7 +7,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
-import { listSensors, listDevices, setDeviceState, getDeviceActivities } from '../services/api';
+import { listSensors, listDevices, setDeviceState, getDeviceActivities, getThresholds } from '../services/api';
+import { DEFAULT_THRESHOLDS } from './ThresholdSettingsScreen';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -53,21 +54,26 @@ function formatDate() {
   });
 }
 
-function sensorStatus(key, raw) {
+function sensorStatus(key, raw, thresholds = {}) {
   const n = parseFloat(raw);
   if (raw == null || isNaN(n)) return null;
+  const t = { ...DEFAULT_THRESHOLDS, ...thresholds };
   if (key === 'temperature') {
-    if (n >= 35) return { text: 'Critical', color: Colors.error };
-    if (n >= 30) return { text: 'Warn',     color: Colors.warning };
+    if (n >= t.temp_upper_threshold) return { text: 'High',   color: Colors.warning };
+    if (n <  t.temp_lower_threshold) return { text: 'Cold',   color: Colors.info    };
     return { text: 'Normal', color: Colors.success };
   }
   if (key === 'humidity') {
-    if (n < 30 || n > 80) return { text: 'Warn',   color: Colors.warning };
+    if (n > t.humidity_upper_threshold) return { text: 'Humid', color: Colors.warning };
+    if (n < t.humidity_lower_threshold) return { text: 'Dry',   color: Colors.warning };
     return { text: 'Normal', color: Colors.success };
   }
+  if (key === 'gas') {
+    if (n > t.gas_upper_threshold) return { text: 'High', color: Colors.error };
+    return { text: 'OK', color: Colors.success };
+  }
   if (key === 'themis') {
-    if (n < 10)  return { text: 'Dark',   color: Colors.warning };
-    if (n > 800) return { text: 'Bright', color: Colors.warning };
+    if (n < t.light_lower_threshold) return { text: 'Dark', color: Colors.warning };
     return { text: 'OK', color: Colors.success };
   }
   return { text: 'OK', color: Colors.success };
@@ -135,19 +141,46 @@ function actColor(type, value) {
 const HS_THUMB_R = 8;
 
 function HorizontalSlider({ value, color, onChange, style }) {
-  const trackW = useRef(0);
+  const trackW      = useRef(0);
+  const startVal    = useRef(value);
+  const dragging    = useRef(false);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const [localVal, setLocalVal] = useState(value);
+
+  useEffect(() => {
+    if (!dragging.current) setLocalVal(value);
+  }, [value]);
+
   const pan = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > Math.abs(gs.dy),
+    onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > Math.abs(gs.dy) + 2,
     onPanResponderGrant: (e) => {
-      if (trackW.current > 0)
-        onChange(Math.round(Math.max(0, Math.min(1, e.nativeEvent.locationX / trackW.current)) * 100));
+      dragging.current = true;
+      if (trackW.current > 0) {
+        const v = Math.round(Math.max(0, Math.min(1, e.nativeEvent.locationX / trackW.current)) * 100);
+        startVal.current = v;
+        setLocalVal(v);
+      }
     },
-    onPanResponderMove: (e) => {
-      if (trackW.current > 0)
-        onChange(Math.round(Math.max(0, Math.min(1, e.nativeEvent.locationX / trackW.current)) * 100));
+    onPanResponderMove: (_, gs) => {
+      if (trackW.current > 0) {
+        const v = Math.round(Math.max(0, Math.min(100, startVal.current + gs.dx / trackW.current * 100)));
+        setLocalVal(v);
+      }
     },
+    onPanResponderRelease: (_, gs) => {
+      dragging.current = false;
+      if (trackW.current > 0) {
+        const v = Math.round(Math.max(0, Math.min(100, startVal.current + gs.dx / trackW.current * 100)));
+        setLocalVal(v);
+        onChangeRef.current(v);
+      }
+    },
+    onPanResponderTerminate: () => { dragging.current = false; },
   })).current;
+
   return (
     <View
       onLayout={e => { trackW.current = e.nativeEvent.layout.width; }}
@@ -155,10 +188,10 @@ function HorizontalSlider({ value, color, onChange, style }) {
       {...pan.panHandlers}
     >
       <View style={hs.track}>
-        <View style={[hs.fill, { width: `${value}%`, backgroundColor: color }]} />
+        <View style={[hs.fill, { width: `${localVal}%`, backgroundColor: color }]} />
       </View>
       <View style={[hs.thumb, {
-        left: `${value}%`,
+        left: `${localVal}%`,
         borderColor: color,
         transform: [{ translateX: -HS_THUMB_R }],
       }]} />
@@ -197,12 +230,13 @@ function Toggle({ value, color = Colors.success, onPress, disabled }) {
 export default function HomeScreen({ navigation }) {
   const { token, user } = useAuth();
 
-  const [sensorList, setSensorList] = useState([]);
-  const [sensors,    setSensors]    = useState({});
-  const [deviceList, setDeviceList] = useState([]);
-  const [devices,    setDevices]    = useState({});
-  const [loading,    setLoading]    = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [sensorList,  setSensorList]  = useState([]);
+  const [sensors,     setSensors]     = useState({});
+  const [deviceList,  setDeviceList]  = useState([]);
+  const [devices,     setDevices]     = useState({});
+  const [thresholds,  setThresholds]  = useState({});
+  const [loading,     setLoading]     = useState(true);
+  const [refreshing,  setRefreshing]  = useState(false);
   const [cmdLoading,  setCmdLoading]  = useState({});
   const [activities,  setActivities]  = useState([]);
 
@@ -233,6 +267,10 @@ export default function HomeScreen({ navigation }) {
   useFocusEffect(
     useCallback(() => {
       fetchAll();
+      // Fetch thresholds on every focus so changes from ThresholdSettingsScreen are picked up.
+      getThresholds(token)
+        .then(t => { if (t && typeof t === 'object') setThresholds(t); })
+        .catch(e => console.warn('getThresholds:', e.message));
       pollRef.current = setInterval(fetchAll, 10000);
       return () => clearInterval(pollRef.current);
     }, [fetchAll])
@@ -356,7 +394,7 @@ export default function HomeScreen({ navigation }) {
                 const meta     = SENSOR_META[sensor.feed_key] ?? { icon: 'analytics-outline', color: Colors.text.caption };
                 const num      = parseFloat(sensor.current_value);
                 const unit     = sensor.unit === 'raw' ? '' : sensor.unit;
-                const status   = sensorStatus(sensor.feed_key, sensor.current_value);
+                const status   = sensorStatus(sensor.feed_key, sensor.current_value, thresholds);
                 const online   = isOnline(sensor.last_recorded_at);
                 const lastDate = sensor.last_recorded_at ? new Date(sensor.last_recorded_at) : null;
                 return (

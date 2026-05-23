@@ -142,7 +142,7 @@ function formatDate() {
 }
 
 // ── Screen ────────────────────────────────────────────────────────
-export default function ChartScreen() {
+export default function ChartScreen({ navigation }) {
   const { token } = useAuth();
   const [sensors,   setSensors]   = useState([]);
   const [selected,  setSelected]  = useState(null);
@@ -204,9 +204,14 @@ export default function ChartScreen() {
           <Text style={s.headerTitle}>Charts</Text>
           <Text style={s.headerDate}>{formatDate()}</Text>
         </View>
-        <TouchableOpacity onPress={fetchData} style={s.refreshBtn}>
-          <Ionicons name="refresh-outline" size={20} color={Colors.primary.default} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+          <TouchableOpacity onPress={fetchData} style={s.refreshBtn}>
+            <Ionicons name="refresh-outline" size={20} color={Colors.primary.default} />
+          </TouchableOpacity>
+          <TouchableOpacity style={s.avatar} onPress={() => navigation.navigate('AccountSettings')}>
+            <Ionicons name="person" size={18} color={Colors.text.title} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ── Sensor chips ───────────────────────────────── */}
@@ -326,6 +331,11 @@ const s = StyleSheet.create({
   refreshBtn: {
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: Colors.primary.brand,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  avatar: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: Colors.surface.elevated,
     alignItems: 'center', justifyContent: 'center',
   },
 

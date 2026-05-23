@@ -102,19 +102,46 @@ function formatDate() {
 const HS_THUMB_R = 8;
 
 function HorizontalSlider({ value, color, onChange, style }) {
-  const trackW = useRef(0);
+  const trackW      = useRef(0);
+  const startVal    = useRef(value);
+  const dragging    = useRef(false);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const [localVal, setLocalVal] = useState(value);
+
+  useEffect(() => {
+    if (!dragging.current) setLocalVal(value);
+  }, [value]);
+
   const pan = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > Math.abs(gs.dy),
+    onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > Math.abs(gs.dy) + 2,
     onPanResponderGrant: (e) => {
-      if (trackW.current > 0)
-        onChange(Math.round(Math.max(0, Math.min(1, e.nativeEvent.locationX / trackW.current)) * 100));
+      dragging.current = true;
+      if (trackW.current > 0) {
+        const v = Math.round(Math.max(0, Math.min(1, e.nativeEvent.locationX / trackW.current)) * 100);
+        startVal.current = v;
+        setLocalVal(v);
+      }
     },
-    onPanResponderMove: (e) => {
-      if (trackW.current > 0)
-        onChange(Math.round(Math.max(0, Math.min(1, e.nativeEvent.locationX / trackW.current)) * 100));
+    onPanResponderMove: (_, gs) => {
+      if (trackW.current > 0) {
+        const v = Math.round(Math.max(0, Math.min(100, startVal.current + gs.dx / trackW.current * 100)));
+        setLocalVal(v);
+      }
     },
+    onPanResponderRelease: (_, gs) => {
+      dragging.current = false;
+      if (trackW.current > 0) {
+        const v = Math.round(Math.max(0, Math.min(100, startVal.current + gs.dx / trackW.current * 100)));
+        setLocalVal(v);
+        onChangeRef.current(v);
+      }
+    },
+    onPanResponderTerminate: () => { dragging.current = false; },
   })).current;
+
   return (
     <View
       onLayout={e => { trackW.current = e.nativeEvent.layout.width; }}
@@ -122,10 +149,10 @@ function HorizontalSlider({ value, color, onChange, style }) {
       {...pan.panHandlers}
     >
       <View style={hs.track}>
-        <View style={[hs.fill, { width: `${value}%`, backgroundColor: color }]} />
+        <View style={[hs.fill, { width: `${localVal}%`, backgroundColor: color }]} />
       </View>
       <View style={[hs.thumb, {
-        left: `${value}%`,
+        left: `${localVal}%`,
         borderColor: color,
         transform: [{ translateX: -HS_THUMB_R }],
       }]} />

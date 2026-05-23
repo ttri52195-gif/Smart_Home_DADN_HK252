@@ -53,7 +53,7 @@ function formatAge(date) {
   return `${Math.floor(secs / 86400)} d ago`;
 }
 
-export default function AlertScreen() {
+export default function AlertScreen({ navigation }) {
   const [alerts,     setAlerts]     = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -93,7 +93,7 @@ export default function AlertScreen() {
           <Text style={s.title}>Alerts</Text>
           <Text style={s.date}>{formatDate()}</Text>
         </View>
-        <TouchableOpacity style={s.avatar}>
+        <TouchableOpacity style={s.avatar} onPress={() => navigation.navigate('AccountSettings')}>
           <Ionicons name="person" size={18} color={Colors.text.title} />
         </TouchableOpacity>
       </View>

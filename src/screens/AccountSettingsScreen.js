@@ -112,10 +112,12 @@ export default function AccountSettingsScreen({ navigation }) {
             onToggle={() => setEmailNotif(v => !v)}
           />
           <View style={s.divider} />
-          <SettingRow
-            icon="warning-outline"
-            label="Thresholds Settings"
-          />
+          <TouchableOpacity onPress={() => navigation.navigate('ThresholdSettings')}>
+            <SettingRow
+              icon="warning-outline"
+              label="Threshold Settings"
+            />
+          </TouchableOpacity>
         </View>
 
         {/* ── Security ───────────────────────────────── */}

@@ -5,7 +5,7 @@ import {
 // ── DEV MODE ──────────────────────────────────────────────────────────────────
 // true  → skip the backend, every function returns mock data instantly.
 // false → hit the real FastAPI backend (update API_BASE_URL below first).
-export const DEV_MODE = false;
+export const DEV_MODE = true;
 // ─────────────────────────────────────────────────────────────────────────────
 
 // When testing on a physical device with Expo Go, set this to your computer's
@@ -13,7 +13,7 @@ export const DEV_MODE = false;
 //   iOS Simulator  → 'http://localhost:8001'
 //   Android Emu    → 'http://10.0.2.2:8001'
 //   Physical phone → 'http://<your-lan-ip>:8001'
-export const API_BASE_URL = 'http://192.168.1.109:8001';
+export const API_BASE_URL = 'http://192.168.69.113:8001';
 
 // ── Internal fetch helper ─────────────────────────────────────────────────────
 // The backend wraps every success as { success: true, data: <payload> }.
@@ -307,4 +307,29 @@ export async function updateAutomationRule(token, id, data) {
 export async function deleteAutomationRule(token, id) {
   if (DEV_MODE) return { message: 'ok' };
   return request(`/api/automation/rules/${id}`, { method: 'DELETE', token });
+}
+
+// ── Thresholds ────────────────────────────────────────────────────────────────
+// GET /api/setting-profiles/current/thresholds
+// Response: { temp_lower_threshold, temp_upper_threshold, humidity_lower_threshold,
+//             humidity_upper_threshold, gas_upper_threshold, light_lower_threshold }
+export async function getThresholds(token) {
+  if (DEV_MODE) return {
+    temp_lower_threshold:     18,
+    temp_upper_threshold:     30,
+    humidity_lower_threshold: 30,
+    humidity_upper_threshold: 80,
+    gas_upper_threshold:      500,
+    light_lower_threshold:    100,
+  };
+  return request('/api/setting-profiles/current/thresholds', { token });
+}
+
+export async function updateThresholds(token, data) {
+  if (DEV_MODE) return data;
+  return request('/api/setting-profiles/current/thresholds', {
+    method: 'PUT',
+    token,
+    body:   data,
+  });
 }
