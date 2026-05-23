@@ -30,6 +30,10 @@ async function request(path, { token, body, method = 'GET', queryParams } = {}) 
     url = `${url}?${qs}`;
   }
 
+  if (token != undefined) {
+    body['auth_token'] = token
+  }
+
   console.log('[API →]', method, path, body ?? queryParams ?? '');
 
   const res = await fetch(url, {
@@ -328,8 +332,8 @@ export async function getThresholds(token) {
 export async function updateThresholds(token, data) {
   if (DEV_MODE) return data;
   return request('/api/setting-profiles/current/thresholds', {
-    method: 'PUT',
     token,
     body:   data,
+    method: 'PUT',
   });
 }

@@ -264,7 +264,7 @@ const dl = StyleSheet.create({
 
 // ── Rule Item ─────────────────────────────────────────────────────
 function RuleItem({ rule, deviceType, onToggle, onDelete, toggling }) {
-  const isNum = deviceType === 'DIMMER' || deviceType === 'RGB';
+  const isNum = deviceType === 'LIGHT' || deviceType === 'RGB';
   const valLabel = isNum ? `${rule.value}%` : rule.value;
   return (
     <View style={ri.row}>
@@ -301,7 +301,7 @@ const ri = StyleSheet.create({
 
 // ── Add Rule Form ─────────────────────────────────────────────────
 function AddRuleForm({ deviceType, onAdd, onCancel }) {
-  const isNum = deviceType === 'DIMMER' || deviceType === 'RGB';
+  const isNum = deviceType === 'LIGHT' || deviceType === 'RGB';
   const [time,       setTime]       = useState(() => { const d = new Date(); d.setSeconds(0, 0); return d; });
   const [showPicker, setShowPicker] = useState(false);
   const [days,       setDays]       = useState([...DAYS]);
