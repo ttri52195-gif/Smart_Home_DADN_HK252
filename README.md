@@ -314,7 +314,13 @@ The JWT token is passed as `Authorization: Bearer <token>` on all authenticated 
 
 ## Changelog
 
-### 2026-05-23 (latest)
+### 2026-06-04 (latest)
+- **LoginScreen — Sign Up**: added Display Name (optional) and Email (mandatory) fields shown only in signup mode. Email is validated with a regex before submission. Both fields are cleared on successful signup or when switching back to the Login tab. `ScrollView` wrapper added inside `KeyboardAvoidingView` to handle the taller signup form.
+- **ForgotPasswordScreen — email-first flow**: step 1 now collects the user's email address and validates it via `POST /api/auth/forgot-password/verify-email` before advancing. The Continue button shows a spinner during verification and displays backend-aware error messages (404 → "No account found"). Step 2 (new password input) is unchanged; the verified user info returned by the endpoint is used to identify the account for `resetPassword`.
+- **api.js**: added `verifyEmail(email)` → `POST /api/auth/forgot-password/verify-email`; updated `register` to include `display_name` and `email` fields in the request body; updated `AuthContext.signUp` signature to accept and forward `displayName` and `email`.
+- **Backend endpoints added**: `POST /api/auth/forgot-password/verify-email`.
+
+### 2026-05-23
 - **ThresholdSettingsScreen** (new): navigated from Account Settings → "Threshold Settings". Loads all sensor alert thresholds from `GET /api/setting-profiles/current/thresholds` and displays them in four grouped editable cards — Temperature (°C min/max), Humidity (% min/max), Gas (ppm upper), Light Intensity (lower only). Inline `decimal-pad` TextInput per field; Save validates ranges (min < max, NaN guard) then calls `PUT /api/setting-profiles/current/thresholds`. A "Not configurable via API" section documents three missing thresholds: rain (no backend threshold), light upper bound (only lower exposed), and temperature critical level (one upper threshold; warn vs critical split unavailable).
 - **HomeScreen — dynamic thresholds**: `sensorStatus` now accepts a `thresholds` param and merges it with `DEFAULT_THRESHOLDS` fallbacks; adds `gas` feed_key support (was previously silently skipped); removes the hardcoded 35 °C "Critical" split — only one upper threshold from API. Thresholds fetched from API on every screen focus so changes from ThresholdSettingsScreen are reflected immediately. `DEFAULT_THRESHOLDS` exported from ThresholdSettingsScreen and shared with HomeScreen to avoid duplication.
 - **api.js**: added `getThresholds(token)` → `GET /api/setting-profiles/current/thresholds`; `updateThresholds(token, data)` → `PUT /api/setting-profiles/current/thresholds`.

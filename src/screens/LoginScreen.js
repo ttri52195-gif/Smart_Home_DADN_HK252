@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   KeyboardAvoidingView,
+  ScrollView,
   Platform,
   StatusBar,
 } from 'react-native';
@@ -18,15 +19,33 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 
-export default function LoginScreen() {
+const USERNAME_RULES = [
+  { label: 'At least 3 characters',              test: v => v.length >= 3                   },
+  { label: 'No spaces',                           test: v => !/\s/.test(v)                   },
+  { label: 'Letters, numbers, or underscores only', test: v => /^[A-Za-z0-9_]+$/.test(v)    },
+];
+
+const PASSWORD_RULES = [
+  { label: 'At least 8 characters',    test: v => v.length >= 8              },
+  { label: 'Uppercase letter (A–Z)',    test: v => /[A-Z]/.test(v)           },
+  { label: 'Lowercase letter (a–z)',    test: v => /[a-z]/.test(v)           },
+  { label: 'Number (0–9)',              test: v => /[0-9]/.test(v)           },
+  { label: 'Special character (!@#…)',  test: v => /[^A-Za-z0-9]/.test(v)   },
+];
+
+export default function LoginScreen({ navigation }) {
   const { signIn, signUp } = useAuth();
 
   const [mode, setMode] = useState('login');
 
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername]       = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [email, setEmail]             = useState('');
+  const [password, setPassword]       = useState('');
 
-  const [showPassword, setShowPassword] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword]       = useState(false);
+  const [showConfirm, setShowConfirm]         = useState(false);
 
   const [loading, setLoading] = useState(false);
 
@@ -37,6 +56,28 @@ export default function LoginScreen() {
       setError('Please fill all fields');
       return;
     }
+    if (mode === 'signup') {
+      if (!USERNAME_RULES.every(r => r.test(username.trim()))) {
+        setError('Username does not meet requirements');
+        return;
+      }
+      if (!email.trim()) {
+        setError('Email is required');
+        return;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        setError('Please enter a valid email address');
+        return;
+      }
+      if (!PASSWORD_RULES.every(r => r.test(password))) {
+        setError('Password does not meet requirements');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match');
+        return;
+      }
+    }
 
     setLoading(true);
     setError('');
@@ -45,17 +86,17 @@ export default function LoginScreen() {
       if (mode === 'login') {
         await signIn(username.trim(), password);
       } else {
-        await signUp(username.trim(), password);
-
-        setPassword('');
+        await signUp(username.trim(), password, true, displayName.trim(), email.trim());
 
         setUsername('');
-
+        setDisplayName('');
+        setEmail('');
+        setPassword('');
+        setConfirmPassword('');
         setMode('login');
-
         setError('');
 
-        alert('Account created successfully!\n Please login to continue.');
+        alert('Account created successfully!\nPlease login to continue.');
       }
     } catch (e) {
       setError(e.message || 'Something went wrong');
@@ -73,8 +114,13 @@ export default function LoginScreen() {
       <View style={s.glowBottom} />
 
       <KeyboardAvoidingView
-        style={s.container}
+        style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+      <ScrollView
+        contentContainerStyle={s.container}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         {/* logo */}
         <View style={s.logoWrap}>
@@ -97,6 +143,8 @@ export default function LoginScreen() {
               style={[s.tabBtn, mode === 'login' && s.tabBtnActive]}
               onPress={() => {
                 setMode('login');
+                setDisplayName('');
+                setEmail('');
                 setError('');
               }}
             >
@@ -136,6 +184,56 @@ export default function LoginScreen() {
             />
           </View>
 
+          {/* signup-only: username rules */}
+          {mode === 'signup' && username.length > 0 && (
+            <View style={s.rulesBox}>
+              {USERNAME_RULES.map(rule => {
+                const passed = rule.test(username);
+                return (
+                  <View key={rule.label} style={s.ruleRow}>
+                    <Ionicons
+                      name={passed ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={13}
+                      color={passed ? '#27AE60' : '#7C7C7C'}
+                    />
+                    <Text style={[s.ruleText, { color: passed ? '#27AE60' : '#7C7C7C' }]}>
+                      {rule.label}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* signup-only: display name + email */}
+          {mode === 'signup' && (
+            <>
+              <View style={s.inputWrap}>
+                <Ionicons name="text-outline" size={18} color={Colors.text.caption} />
+                <TextInput
+                  placeholder="Display Name (optional)"
+                  placeholderTextColor={Colors.text.caption}
+                  value={displayName}
+                  onChangeText={setDisplayName}
+                  style={s.input}
+                />
+              </View>
+
+              <View style={s.inputWrap}>
+                <Ionicons name="mail-outline" size={18} color={Colors.text.caption} />
+                <TextInput
+                  placeholder="Email (required)"
+                  placeholderTextColor={Colors.text.caption}
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  style={s.input}
+                />
+              </View>
+            </>
+          )}
+
           {/* password */}
           <View style={s.inputWrap}>
             <Ionicons
@@ -162,6 +260,59 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* signup-only: password rules */}
+          {mode === 'signup' && password.length > 0 && (
+            <View style={s.rulesBox}>
+              {PASSWORD_RULES.map(rule => {
+                const passed = rule.test(password);
+                return (
+                  <View key={rule.label} style={s.ruleRow}>
+                    <Ionicons
+                      name={passed ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={13}
+                      color={passed ? '#27AE60' : '#7C7C7C'}
+                    />
+                    <Text style={[s.ruleText, { color: passed ? '#27AE60' : '#7C7C7C' }]}>
+                      {rule.label}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* signup-only: confirm password */}
+          {mode === 'signup' && (
+            <View style={[s.inputWrap, confirmPassword.length > 0 && password !== confirmPassword && s.inputWrapError]}>
+              <Ionicons name="lock-closed-outline" size={18} color={Colors.text.caption} />
+              <TextInput
+                placeholder="Confirm Password"
+                placeholderTextColor={Colors.text.caption}
+                secureTextEntry={!showConfirm}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                style={s.input}
+              />
+              <TouchableOpacity onPress={() => setShowConfirm(v => !v)}>
+                <Ionicons
+                  name={showConfirm ? 'eye-outline' : 'eye-off-outline'}
+                  size={18}
+                  color={Colors.text.caption}
+                />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* forgot password */}
+          {mode === 'login' && (
+            <TouchableOpacity
+              style={s.forgotBtn}
+              onPress={() => navigation.navigate('ForgotPassword')}
+            >
+              <Text style={s.forgotText}>Forgot Password?</Text>
+            </TouchableOpacity>
+          )}
+
           {/* error */}
           {!!error && <Text style={s.error}>{error}</Text>}
 
@@ -186,6 +337,7 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
         </View>
+      </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -302,12 +454,43 @@ const s = StyleSheet.create({
     paddingBottom: Spacing.sm,
   },
 
+  inputWrapError: {
+    borderBottomColor: '#DC2626',
+  },
+
   input: {
     flex: 1,
     marginLeft: Spacing.md,
     color: '#111827',
     fontSize: Typography.size.sm,
     paddingVertical: 6,
+  },
+
+  // rule checklist
+  rulesBox: {
+    marginTop: -Spacing.md,
+    marginBottom: Spacing.lg,
+    gap: Spacing.xs,
+  },
+  ruleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  ruleText: {
+    fontSize: Typography.size.xs,
+  },
+
+  // forgot password
+  forgotBtn: {
+    alignSelf: 'flex-end',
+    marginBottom: Spacing.md,
+  },
+
+  forgotText: {
+    color: Colors.primary.default,
+    fontSize: Typography.size.xs,
+    fontWeight: Typography.weight.medium,
   },
 
   // error

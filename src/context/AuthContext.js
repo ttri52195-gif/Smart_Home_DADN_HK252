@@ -20,18 +20,16 @@ export function AuthProvider({ children }) {
       setUser({ username });
       return true;
     } catch (e) {
-      setError(
-        e.message.includes('401') ? 'Invalid username or password.' : e.message,
-      );
-      return false;
+      setError(e.message);
+      throw e;
     }
   }, []);
 
   const signUp = useCallback(
-    async (username, password, isOwner) => {
+    async (username, password, isOwner, displayName, email) => {
       setError(null);
       try {
-        await apiRegister(username, password, isOwner);
+        await apiRegister(username, password, isOwner, displayName, email);
         return true;
       } catch (e) {
         setError(

@@ -13,7 +13,7 @@ export const DEV_MODE = false;
 //   iOS Simulator  → 'http://localhost:8001'
 //   Android Emu    → 'http://10.0.2.2:8001'
 //   Physical phone → 'http://<your-lan-ip>:8001'
-export const API_BASE_URL = 'http://10.127.13.99:8001';
+export const API_BASE_URL = 'http://192.168.69.104:8001';
 
 // ── Internal fetch helper ─────────────────────────────────────────────────────
 // The backend wraps every success as { success: true, data: <payload> }.
@@ -34,7 +34,13 @@ async function request(path, { token, body, method = 'GET', queryParams } = {}) 
     body['auth_token'] = token
   }
 
-  console.log('[API →]', method, path, body ?? queryParams ?? '');
+  const PASSWORD_KEYS = ['password', 'new_password', 'confirm_new_password', 'current_password'];
+  const logBody = body
+    ? Object.fromEntries(Object.entries(body).map(([k, v]) =>
+        PASSWORD_KEYS.includes(k) ? [k, '***'] : [k, v]
+      ))
+    : queryParams ?? '';
+  console.log('[API →]', method, path, logBody);
 
   const res = await fetch(url, {
     method,
@@ -45,7 +51,9 @@ async function request(path, { token, body, method = 'GET', queryParams } = {}) 
   if (!res.ok) {
     const text = await res.text();
     console.warn('[API ✗]', method, path, res.status, text);
-    throw new Error(`${res.status}: ${text}`);
+    let errMsg = `${res.status}`;
+    try { const j = JSON.parse(text); if (j.message) errMsg = j.message; } catch {}
+    throw new Error(errMsg);
   }
 
   const ct = res.headers.get('content-type') ?? '';
@@ -68,11 +76,11 @@ export async function login(username, password) {
 
 // Note: Postman body is { username, password } only.
 // is_house_owner is an app-side extension; backend may ignore or 422 it.
-export async function register(username, password, is_house_owner = false) {
+export async function register(username, password, is_house_owner = false, display_name = '', email = '') {
   if (DEV_MODE) return { message: 'User registered successfully' };
   return request('/api/auth/register', {
     method: 'POST',
-    body: { username, password, is_house_owner },
+    body: { username, password, is_house_owner, display_name, email },
   });
 }
 
@@ -86,6 +94,22 @@ export async function changePassword(token, currentPassword, newPassword) {
       new_password:        newPassword,
       confirm_new_password: newPassword,
     },
+  });
+}
+
+export async function resetPassword(username, email, newPassword) {
+  if (DEV_MODE) return { message: 'Password reset successfully' };
+  return request('/api/auth/forgot-password/reset', {
+    method: 'POST',
+    body: { username, email, new_password: newPassword, confirm_new_password: newPassword },
+  });
+}
+
+export async function verifyEmail(username, email) {
+  if (DEV_MODE) return { username };
+  return request('/api/auth/forgot-password/verify-email', {
+    method: 'POST',
+    body: { username, email },
   });
 }
 

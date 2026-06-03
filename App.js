@@ -9,6 +9,7 @@ import { SymbolView } from 'expo-symbols';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import LoginScreen           from './src/screens/LoginScreen';
+import ForgotPasswordScreen  from './src/screens/ForgotPasswordScreen';
 import HomeScreen            from './src/screens/HomeScreen';
 import DevicesScreen         from './src/screens/DevicesScreen';
 import AlertScreen           from './src/screens/AlertScreen';
@@ -88,9 +89,18 @@ function MainTabs() {
   );
 }
 
+function GuestNavigator() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Login"          component={LoginScreen} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+    </Stack.Navigator>
+  );
+}
+
 function RootNavigator() {
   const { token } = useAuth();
-  if (!token) return <LoginScreen />;
+  if (!token) return <GuestNavigator />;
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
