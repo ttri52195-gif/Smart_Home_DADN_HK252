@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
+import { getUserByUsername } from '../services/api';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 import BottomNavBar from '../components/BottomNavBar';
 
@@ -60,9 +61,18 @@ export default function AccountSettingsScreen({ navigation }) {
   const [deviceNotif, setDeviceNotif] = useState(true);
   const [emailNotif,  setEmailNotif]  = useState(true);
   const [twoFAcc,     setTwoFAcc]     = useState(true);
+  const [profile,     setProfile]     = useState(null);
 
-  const displayName = user?.username ?? 'Nguyen Van Minh';
-  const email       = user?.email    ?? 'minh.nguyen@example.com';
+  useEffect(() => {
+    if (!user?.username) return;
+    getUserByUsername(user.username)
+      .then(setProfile)
+      .catch(() => {});
+  }, [user?.username]);
+
+  const displayName = profile?.display_name || user?.username || '—';
+  const email       = profile?.email || '—';
+  const role        = profile?.is_house_owner ? 'Home Owner' : 'Member';
 
   return (
     <SafeAreaView style={s.safe}>
@@ -88,11 +98,15 @@ export default function AccountSettingsScreen({ navigation }) {
           <View style={s.profileAvatar}>
             <Ionicons name="person" size={32} color={Colors.text.title} />
           </View>
-          <View style={s.profileInfo}>
-            <Text style={s.profileName}>{displayName}</Text>
-            <Text style={s.profileRole}>Homeowner</Text>
-            <Text style={s.profileEmail}>{email}</Text>
-          </View>
+          {profile === null ? (
+            <ActivityIndicator color={Colors.primary.default} style={{ flex: 1 }} />
+          ) : (
+            <View style={s.profileInfo}>
+              <Text style={s.profileName}>{displayName}</Text>
+              <Text style={s.profileRole}>{role}</Text>
+              <Text style={s.profileEmail}>{email}</Text>
+            </View>
+          )}
         </View>
 
         {/* ── Notifications ──────────────────────────── */}
