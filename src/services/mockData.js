@@ -1,15 +1,18 @@
 // Mock responses that mirror the real API shape.
 // Used when DEV_MODE = true in api.js.
 
+// Timestamps generated at load time so devices/sensors always appear online.
+function minsAgo(n) { return new Date(Date.now() - n * 60 * 1000).toISOString(); }
+
 // ── Sensors ───────────────────────────────────────────────────────────────────
 // Mirrors GET /api/sensors → { sensors: [...], count }
 export const MOCK_SENSORS = {
   sensors: [
-    { feed_key: 'temperature', name: 'temperature', type: 'TEMPERATURE',    current_value: '28.00', unit: '°C',  location: 'Living Room', last_recorded_at: '2026-05-21T07:26:43+00:00' },
-    { feed_key: 'humidity',    name: 'humidity',    type: 'HUMIDITY',        current_value: '45',    unit: '%',   location: 'Living Room', last_recorded_at: '2026-05-21T07:26:43+00:00' },
-    { feed_key: 'rain',        name: 'rain',        type: 'RAIN',            current_value: '716',   unit: 'raw', location: 'Outdoor',     last_recorded_at: '2026-05-21T07:26:43+00:00' },
-    { feed_key: 'gas',         name: 'gas',         type: 'GAS',             current_value: '820',   unit: 'ppm', location: 'Kitchen',     last_recorded_at: '2026-05-21T07:26:43+00:00' },
-    { feed_key: 'themis',      name: 'themis',      type: 'LIGHT_INTENSITY', current_value: '82',    unit: '%',   location: 'Outdoor',     last_recorded_at: '2026-05-21T07:26:43+00:00' },
+    { feed_key: 'temperature', name: 'temperature', type: 'TEMPERATURE',    current_value: '28.00', unit: '°C',  location: 'Living Room', last_recorded_at: minsAgo(1) },
+    { feed_key: 'humidity',    name: 'humidity',    type: 'HUMIDITY',        current_value: '45',    unit: '%',   location: 'Living Room', last_recorded_at: minsAgo(1) },
+    { feed_key: 'rain',        name: 'rain',        type: 'RAIN',            current_value: '716',   unit: 'raw', location: 'Outdoor',     last_recorded_at: minsAgo(2) },
+    { feed_key: 'gas',         name: 'gas',         type: 'GAS',             current_value: '820',   unit: 'ppm', location: 'Kitchen',     last_recorded_at: minsAgo(1) },
+    { feed_key: 'themis',      name: 'themis',      type: 'LIGHT_INTENSITY', current_value: '82',    unit: '%',   location: 'Outdoor',     last_recorded_at: minsAgo(2) },
   ],
   count: 5,
 };
@@ -18,11 +21,10 @@ export const MOCK_SENSORS = {
 // Mirrors GET /api/devices → { devices: [...], count }
 export const MOCK_DEVICES = {
   devices: [
-    { feed_key: 'door',      name: 'DOOR',      type: 'DOOR',   status: 'ONLINE', value: 'OPEN', location: 'Entrance',    last_record_time: '2026-04-16T09:05:03+00:00' },
-    { feed_key: 'lb1',       name: 'LB1',       type: 'LIGHT',  status: 'ONLINE', value: '41',   location: 'Bedroom',     last_record_time: '2026-04-16T09:05:07+00:00' },
-    { feed_key: 'light-pwm', name: 'light_pwm', type: 'DIMMER', status: 'ONLINE', value: null,   location: 'Living Room', last_record_time: null                        },
-    { feed_key: 'pir',       name: 'PIR',       type: 'MOTION', status: 'ONLINE', value: 'ON',   location: 'Bedroom',     last_record_time: '2026-04-16T09:05:03+00:00' },
-    { feed_key: 'rgb',       name: 'RGB',       type: 'RGB',    status: 'ONLINE', value: '15',   location: 'Bedroom',     last_record_time: '2026-04-16T09:05:09+00:00' },
+    { feed_key: 'door',      name: 'DOOR',      type: 'DOOR',   status: 'ONLINE', value: 'OPEN', location: 'Entrance',    last_record_time: minsAgo(1) },
+    { feed_key: 'lb1',       name: 'LB1',       type: 'LIGHT',  status: 'ONLINE', value: '41',   location: 'Bedroom',     last_record_time: minsAgo(1) },
+    { feed_key: 'pir',       name: 'PIR',       type: 'MOTION', status: 'ONLINE', value: 'ON',   location: 'Bedroom',     last_record_time: minsAgo(1) },
+    { feed_key: 'rgb',       name: 'RGB',       type: 'RGB',    status: 'ONLINE', value: '15',   location: 'Bedroom',     last_record_time: minsAgo(1) },
   ],
   count: 5,
 };

@@ -13,7 +13,7 @@ export const DEV_MODE = false;
 //   iOS Simulator  → 'http://localhost:8001'
 //   Android Emu    → 'http://10.0.2.2:8001'
 //   Physical phone → 'http://<your-lan-ip>:8001'
-export const API_BASE_URL = 'http://192.168.69.104:8001';
+export const API_BASE_URL = 'http://192.168.69.92:8001';
 
 // ── Internal fetch helper ─────────────────────────────────────────────────────
 // The backend wraps every success as { success: true, data: <payload> }.
@@ -28,10 +28,6 @@ async function request(path, { token, body, method = 'GET', queryParams } = {}) 
   if (queryParams) {
     const qs = new URLSearchParams(queryParams).toString();
     url = `${url}?${qs}`;
-  }
-
-  if (token != undefined) {
-    body['auth_token'] = token
   }
 
   const PASSWORD_KEYS = ['password', 'new_password', 'confirm_new_password', 'current_password'];
