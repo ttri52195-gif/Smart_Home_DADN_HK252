@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
-import { getThresholds, updateThresholds } from '../services/api';
+import { getThresholds, updateThresholds, getUserByUsername } from '../services/api';
 import { Colors, Typography, Spacing, Radius } from '../theme';
 
 const GROUPS = [
@@ -64,16 +64,23 @@ export const DEFAULT_THRESHOLDS = {
 };
 
 export default function ThresholdSettingsScreen({ navigation }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [values,  setValues]  = useState(
     Object.fromEntries(Object.entries(DEFAULT_THRESHOLDS).map(([k, v]) => [k, String(v)]))
   );
-  const [loading, setLoading] = useState(true);
-  const [saving,  setSaving]  = useState(false);
+  const [loading,  setLoading]  = useState(true);
+  const [saving,   setSaving]   = useState(false);
+  const [isOwner,  setIsOwner]  = useState(null);
 
   useEffect(() => {
-    getThresholds(token)
-      .then(data => {
+    async function load() {
+      try {
+        const profile = await getUserByUsername(user?.username);
+        const owner   = profile?.is_house_owner === true;
+        setIsOwner(owner);
+        // For members, fetch thresholds using the house owner's context
+        // (backend resolves via house_owner_id on the token's profile)
+        const data = await getThresholds(token);
         if (data && typeof data === 'object') {
           setValues(prev => {
             const next = { ...prev };
@@ -83,9 +90,13 @@ export default function ThresholdSettingsScreen({ navigation }) {
             return next;
           });
         }
-      })
-      .catch(e => console.warn('getThresholds failed:', e.message))
-      .finally(() => setLoading(false));
+      } catch (e) {
+        console.warn('ThresholdSettings load failed:', e.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
   }, []);
 
   async function handleSave() {
@@ -137,6 +148,15 @@ export default function ThresholdSettingsScreen({ navigation }) {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          {isOwner === false && (
+            <View style={s.readOnlyBanner}>
+              <Ionicons name="lock-closed-outline" size={18} color={Colors.warning} />
+              <Text style={s.readOnlyText}>
+                Only the Home Owner can change threshold settings. You are viewing read-only values.
+              </Text>
+            </View>
+          )}
+
           <View style={s.infoBanner}>
             <Ionicons name="information-circle-outline" size={18} color={Colors.primary.default} />
             <Text style={s.infoText}>
@@ -163,12 +183,13 @@ export default function ThresholdSettingsScreen({ navigation }) {
                       {field.label}{group.unit ? `  (${group.unit})` : ''}
                     </Text>
                     <TextInput
-                      style={[s.input, { borderColor: group.color + '55' }]}
+                      style={[s.input, { borderColor: group.color + '55' }, !isOwner && s.inputReadOnly]}
                       value={values[field.key] ?? ''}
-                      onChangeText={v => setValues(prev => ({ ...prev, [field.key]: v }))}
+                      onChangeText={v => isOwner && setValues(prev => ({ ...prev, [field.key]: v }))}
                       keyboardType="decimal-pad"
                       placeholderTextColor={Colors.text.caption}
                       selectTextOnFocus
+                      editable={!!isOwner}
                     />
                   </View>
                 ))}
@@ -194,17 +215,19 @@ export default function ThresholdSettingsScreen({ navigation }) {
             ))}
           </View>
 
-          <TouchableOpacity
-            style={[s.saveBtn, saving && { opacity: 0.7 }]}
-            onPress={handleSave}
-            disabled={saving}
-            activeOpacity={0.85}
-          >
-            {saving
-              ? <ActivityIndicator color={Colors.text.onGold} />
-              : <Text style={s.saveBtnText}>Save Changes</Text>
-            }
-          </TouchableOpacity>
+          {isOwner && (
+            <TouchableOpacity
+              style={[s.saveBtn, saving && { opacity: 0.7 }]}
+              onPress={handleSave}
+              disabled={saving}
+              activeOpacity={0.85}
+            >
+              {saving
+                ? <ActivityIndicator color={Colors.text.onGold} />
+                : <Text style={s.saveBtnText}>Save Changes</Text>
+              }
+            </TouchableOpacity>
+          )}
 
           <View style={{ height: Spacing.xxxl }} />
         </ScrollView>
@@ -239,6 +262,18 @@ const s = StyleSheet.create({
     padding:       Spacing.xl,
     paddingBottom: Spacing.xxxl,
     gap:           Spacing.lg,
+  },
+
+  readOnlyBanner: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm,
+    backgroundColor: Colors.warning + '18',
+    borderRadius: Radius.md, padding: Spacing.lg,
+    borderWidth: 1, borderColor: Colors.warning + '40',
+  },
+  readOnlyText: { flex: 1, fontSize: Typography.size.sm, color: Colors.text.subtitle, lineHeight: 18 },
+
+  inputReadOnly: {
+    opacity: 0.5,
   },
 
   infoBanner: {

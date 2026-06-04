@@ -352,8 +352,7 @@ export async function getThresholds(token) {
 export async function updateThresholds(token, data) {
   if (DEV_MODE) return data;
   return request('/api/setting-profiles/current/thresholds', {
-    token,
-    body:   data,
     method: 'PUT',
+    body:   { ...data, auth_token: token },
   });
 }
